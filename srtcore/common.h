@@ -443,11 +443,6 @@ public:
 
 public:
 
-      /// Sleep for "interval" CCs.
-      /// @param [in] interval CCs to sleep.
-
-   void sleep(uint64_t interval);
-
       /// Seelp until CC "nexttime".
       /// @param [in] nexttime next time the caller is waken up.
 
@@ -468,7 +463,7 @@ public:
 
    static void rdtsc(uint64_t &x);
 
-      /// return the CPU frequency.
+      /// Get the CPU frequency in counts per microsecond.
       /// @return CPU frequency.
 
    static uint64_t getCPUFrequency();
@@ -494,7 +489,7 @@ public:
       /// sleep for a short interval. exact sleep time does not matter
 
    static void sleep();
-   
+
       /// Wait for condition with timeout 
       /// @param [in] cond Condition variable to wait for
       /// @param [in] mutex locked mutex associated with the condition variable

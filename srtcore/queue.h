@@ -166,15 +166,10 @@ public:
 
    static EReschedule rescheduleIf(bool cond) { return cond ? DO_RESCHEDULE : DONT_RESCHEDULE; }
 
-      /// Insert a new UDT instance into the list.
-      /// @param [in] ts time stamp: next processing time
-      /// @param [in] u pointer to the UDT instance
-
-   void insert(int64_t ts, const CUDT* u);
 
       /// Update the timestamp of the UDT instance on the list.
       /// @param [in] u pointer to the UDT instance
-      /// @param [in] resechedule if the timestampe shoudl be rescheduled
+      /// @param [in] resechedule if the timestamp should be rescheduled
 
    void update(const CUDT* u, EReschedule reschedule);
 
