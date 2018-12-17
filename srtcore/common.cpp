@@ -177,14 +177,6 @@ uint64_t CTimer::getCPUFrequency()
    return s_ullCPUFrequency;
 }
 
-void CTimer::sleep(uint64_t interval)
-{
-   uint64_t t;
-   rdtsc(t);
-
-   // sleep next "interval" time
-   sleepto(t + interval);
-}
 
 void CTimer::sleepto(uint64_t nexttime)
 {
@@ -287,14 +279,16 @@ CTimer::EWait CTimer::waitForEvent()
     return reason == ETIMEDOUT ? WT_TIMEOUT : reason == 0 ? WT_EVENT : WT_ERROR;
 }
 
+
 void CTimer::sleep()
 {
-   #ifndef _WIN32
-      usleep(10);
-   #else
-      Sleep(1);
-   #endif
+#ifndef _WIN32
+    usleep(10);
+#else
+    Sleep(1);
+#endif
 }
+
 
 int CTimer::condTimedWaitUS(pthread_cond_t* cond, pthread_mutex_t* mutex, uint64_t delay) {
     timeval now;

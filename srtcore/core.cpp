@@ -8624,7 +8624,7 @@ void CUDT::checkTimers()
         sendCtrl(UMSG_ACK);
         CTimer::rdtsc(currtime_tk);
 
-        int ack_interval_tk = m_CongCtl->ACKPeriod() > 0 ? m_CongCtl->ACKPeriod() * m_ullCPUFrequency : m_ullACKInt_tk;
+        const int ack_interval_tk = m_CongCtl->ACKPeriod() > 0 ? m_CongCtl->ACKPeriod() * m_ullCPUFrequency : m_ullACKInt_tk;
         m_ullNextACKTime_tk = currtime_tk + ack_interval_tk;
 
         m_iPktCount = 0;

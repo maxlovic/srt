@@ -273,32 +273,6 @@ CSndUList::~CSndUList()
     pthread_mutex_destroy(&m_ListLock);
 }
 
-void CSndUList::insert(int64_t ts, const CUDT* u)
-{
-   CGuard listguard(m_ListLock);
-
-   // increase the heap array size if necessary
-   if (m_iLastEntry == m_iArrayLength - 1)
-   {
-      CSNode** temp = NULL;
-
-      try
-      {
-         temp = new CSNode*[m_iArrayLength * 2];
-      }
-      catch(...)
-      {
-         return;
-      }
-
-      memcpy(temp, m_pHeap, sizeof(CSNode*) * m_iArrayLength);
-      m_iArrayLength *= 2;
-      delete [] m_pHeap;
-      m_pHeap = temp;
-   }
-
-   insert_(ts, u);
-}
 
 void CSndUList::update(const CUDT* u, EReschedule reschedule)
 {
@@ -1184,8 +1158,8 @@ void* CRcvQueue::worker(void* param)
        CTimer::rdtsc(currtime_tk);
 
        CRNode* ul = self->m_pRcvUList->m_pUList;
-       uint64_t ctime_tk = currtime_tk - 100000 * CTimer::getCPUFrequency();
-       while ((NULL != ul) && (ul->m_llTimeStamp_tk < ctime_tk))
+       const uint64_t curtime_tk_minus_100ms = currtime_tk - 100000 * CTimer::getCPUFrequency();    // minus 100 ms
+       while ((NULL != ul) && (ul->m_llTimeStamp_tk < curtime_tk_minus_100ms))
        {
            CUDT* u = ul->m_pUDT;
 
