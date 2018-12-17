@@ -473,6 +473,12 @@ public:
 
    static uint64_t getTime();
 
+
+      /// Get the current timestamp, 64bit. Should be used for interval measurements.
+      /// @return current timestamp in microseconds.
+
+   static uint64_t getTimestampMicroSec();
+
       /// trigger an event such as new connection, close, new data, etc. for "select" call.
 
    static void triggerEvent();
@@ -498,9 +504,6 @@ public:
       /// @retval ETIMEDOUT The wait timed out
 
    static int condTimedWaitUS(pthread_cond_t* cond, pthread_mutex_t* mutex, uint64_t delay);
-
-private:
-   uint64_t getTimeInMicroSec();
 
 private:
    uint64_t m_ullSchedTime;             // next schedulled time

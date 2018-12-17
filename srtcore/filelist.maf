@@ -18,6 +18,7 @@ congctl.cpp
 srt_c_api.cpp
 window.cpp
 srt_compat.c
+timing.cpp
 
 PUBLIC HEADERS
 srt.h
@@ -50,4 +51,4 @@ srt_compat.h
 threadname.h
 utilities.h
 window.h
-
+timing.h

@@ -252,6 +252,26 @@ uint64_t CTimer::getTime()
     return t.tv_sec * uint64_t(1000000) + t.tv_usec;
 }
 
+
+uint64_t CTimer::getTimestampMicroSec()
+{
+    // XXX Do further study on that. Currently Cygwin is also using gettimeofday,
+    // however Cygwin platform is supported only for testing purposes.
+
+    //For other systems without microsecond level resolution, add to this conditional compile
+#if defined(OSX) || (TARGET_OS_IOS == 1) || (TARGET_OS_TV == 1)
+    uint64_t x;
+    rdtsc(x);
+    return x / getCPUFrequency();
+    //Specific fix may be necessary if rdtsc is not available either.
+#else
+    timeval t;
+    gettimeofday(&t, 0);
+    return t.tv_sec * uint64_t(1000000) + t.tv_usec;
+#endif
+}
+
+
 void CTimer::triggerEvent()
 {
     pthread_cond_signal(&m_EventCond);
