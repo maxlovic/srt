@@ -66,6 +66,7 @@
 #include <list>
 
 #include "apputil.hpp"  // CreateAddrInet
+#include "argtable3.h"
 #include "uriparser.hpp"  // UriParser
 #include "socketoptions.hpp"
 #include "logsupport.hpp"
@@ -133,6 +134,194 @@ void OnAlarm_Interrupt(int)
 
 extern "C" void TestLogHandler(void* opaque, int level, const char* file, int line, const char* area, const char* message);
 
+
+
+struct Config
+{
+    int timeout = 0;
+    int chunk_size = SRT_LIVE_DEF_PLSIZE;
+    bool quiet  = false;
+    srt_logging::LogLevel::type loglevel = srt_logging::LogLevel::error;
+    set<srt_logging::LogFA> logfas;
+    string logfile;
+    int bw_report = 0;
+    int stats_report = 0;
+    string stats_out;
+    PrintFormat stats_pf;
+    bool auto_reconnect = true;
+    bool full_stats = false;
+
+    string source;
+    string target;
+};
+
+
+
+///
+/// @return    0 on success, 1 on failure, 2 on help output
+int parse_args(Config &cfg, int argc, char** argv)
+{
+    /*
+        cerr << "Usage: " << argv[0] << " [options] <input-uri> <output-uri>\n";
+        cerr << "\t-t:<timeout=0> - exit timer in seconds\n";
+        cerr << "\t-c:<chunk=1316> - max size of data read in one step\n";
+        X cerr << "\t-b:<bandwidth> - set SRT bandwidth\n";
+        cerr << "\t-r:<report-frequency=0> - bandwidth report frequency\n";
+        cerr << "\t-s:<stats-report-freq=0> - frequency of status report\n";
+        cerr << "\t-pf:<format> - printformat (json or default)\n";
+        cerr << "\t-statsreport:<filename> - stats report file name (cout for output to cout, or a filename)\n";
+        cerr << "\t-f - full counters in stats-report (prints total statistics)\n";
+        cerr << "\t-q - quiet mode (default no)\n";
+        cerr << "\t-v - verbose mode (default no)\n";
+        
+        cerr << "\t-a - auto-reconnect mode, default yes, -a:no to disable\n";
+    */
+
+    /* Define the allowable command line options, collecting them in argtable[] */
+    arg_int *tout        = arg_int0("t", "to,timeout", "<sec>", "exit timer in seconds");
+    arg_int *chunk       = arg_int0("c", "chunk", "<bytes>", "max size of data read in one step (default 1316)");
+    arg_int *bwreport    = arg_int0("r", "report,bandwidth-report,bitrate-report", "<every N packets>", "bandwidth report frequency");
+    arg_int *statsrep    = arg_int0("s", "stats,stats-report-frequency", "<every N packets>", "status report frequency");
+    arg_str *statsout    = arg_str0(NULL, "statsout", "<output>", "stats report output (cout, cerr or a filename)");
+    arg_str *statspf     = arg_str0(NULL, "statspf", "<default|json|csv>", "stats report print format");
+    arg_lit *statsfull   = arg_lit0("f", "fullstats", "full counters in stats-report (prints total statistics)");
+    arg_lit *version     = arg_lit0(NULL, "version", "print version information and exit");
+    arg_str *loglevel    = arg_str0(NULL, "ll,loglevel", "<error|note|debug>", "log level");
+    arg_str *logfa       = arg_str0(NULL, "logfa", "<general,bstats,control,data,tsbpd,rexmit,all>", "log functional area");
+    //arg_lit *loginternal = arg_lit0(NULL, "loginternal", "Use default SRT logging output");
+    arg_str *logfile     = arg_str0(NULL, "logfile", "<filename>", "output SRT log to file");
+    arg_lit *help        = arg_lit0("h", "help", "print this help and exit");
+    arg_lit *verb        = arg_lit0("v", "verbose", "verbose output (default off)");
+    arg_lit *quiet       = arg_lit0("q", "quiet", "quiet mode (default no)");
+    arg_str *autorecon   = arg_str0("a", "auto,autoreconnect", "<on|off>", "auto-reconnect mode, default yes, -a:no to disable");
+    arg_str *source      = arg_strn(NULL, NULL, "<source>", 1, 1, "input");
+    arg_str *target      = arg_strn(NULL, NULL, "<target>", 1, 1, "output");
+    struct arg_end *end   = arg_end(20);
+
+    void* argtable[] = { tout, chunk, bwreport, statsrep, statsout, statspf, version, loglevel, logfa, logfile,
+                         help, verb, quiet, autorecon, source, target, end };
+
+
+    struct ArgtableCleanup
+    {
+        void** argtable = nullptr;
+
+        ~ArgtableCleanup()
+        {
+            arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+        }
+    } cleanupobj = { argtable };
+
+
+    const char* progname = "srt-live-transmit";
+    int nerrors;
+
+    /* verify the argtable[] entries were allocated sucessfully */
+    if (arg_nullcheck(argtable) != 0)
+    {
+        /* NULL entries were detected, some allocations must have failed */
+        printf("%s: insufficient memory\n", progname);
+        //arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+        return EXIT_FAILURE;
+    }
+
+    /* Parse the command line as defined by argtable[] */
+    nerrors = arg_parse(argc, argv, argtable);
+
+    /* special case: '--help' takes precedence over error reporting */
+    if (help->count > 0)
+    {
+        printf("Usage: %s", progname);
+        arg_print_syntaxv(stdout, argtable, "\n");
+        printf("SRT sample application to transmit live streaming.\n\n");
+        arg_print_glossary(stdout, argtable, "  %-10s %s\n");
+        //arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+        return 2;
+    }
+
+    if (version->count > 0)
+    {
+        printf("SRT Library version: %s\n", SRT_VERSION);
+        return 2;
+    }
+
+    /* If the parser returned any errors then display them and exit */
+    if (nerrors > 0)
+    {
+        /* Display the error details contained in the arg_end struct.*/
+        arg_print_errors(stdout, end, progname);
+        printf("Try '%s --help' for more information.\n", progname);
+        arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+        return EXIT_FAILURE;
+    }
+
+    // Now map the arguments to configuration
+    if (tout->count > 0)
+        cfg.timeout = tout->ival[0];
+
+    if (chunk->count > 0)
+        cfg.chunk_size = chunk->ival[0];
+
+    if (loglevel->count > 0)
+        cfg.loglevel = SrtParseLogLevel(loglevel->sval[0]);
+
+    if (logfa->count > 0)
+        cfg.logfas = SrtParseLogFA(logfa->sval[0]);
+
+    if (logfile->count > 0)
+        cfg.logfile = logfile->sval[0];
+
+    if (quiet->count > 0)
+        cfg.quiet = true;
+
+    if (bwreport->count > 0)
+        cfg.bw_report = bwreport->ival[0];
+
+    if (statsrep->count > 0)
+        cfg.stats_report = statsrep->ival[0];
+
+    if (statsout->count > 0)
+        cfg.stats_out = statsout->sval[0];
+
+    if (statspf->count > 0)
+    {
+        const string pf = statspf->sval[0];
+        if (pf == "json")
+        {
+            cfg.stats_pf = PRINT_FORMAT_JSON;
+        }
+        if (pf == "csv")
+        {
+            cfg.stats_pf = PRINT_FORMAT_CSV;
+        }
+        else if (pf != "default")
+        {
+            cfg.stats_pf = PRINT_FORMAT_2COLS;
+            cerr << "ERROR: Unsupported print format: " << pf << endl;
+            arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+            return 1;
+        }
+    }
+
+    if (verb->count > 0)
+        Verbose::on = !cfg.quiet;
+
+    if (autorecon->count > 0)
+        cfg.auto_reconnect = string(autorecon->sval[0]) != "no";
+
+    if (statsfull->count > 0)
+        cfg.full_stats = true;
+
+    cfg.source = source->sval[0];
+    cfg.target = target->sval[0];
+    cout << source->sval[0] << endl;
+    cout << target->sval[0] << endl;
+
+    return 0;
+}
+
+
+
 int main( int argc, char** argv )
 {
     // This is mainly required on Windows to initialize the network system,
@@ -150,102 +339,35 @@ int main( int argc, char** argv )
         }
     } cleanupobj;
 
-    vector<string> args;
-    copy(argv+1, argv+argc, back_inserter(args));
 
-    // Check options
-    vector<string> params;
+    Config cfg;
+    const int parse_ret =  parse_args(cfg, argc, argv);
+    if (parse_ret != 0)
+        return parse_ret == 1 ? EXIT_FAILURE : 0;
 
-    for (string a: args)
-    {
-        if ( a[0] == '-' )
-        {
-            string key = a.substr(1);
-            size_t pos = key.find(':');
-            if ( pos == string::npos )
-                pos = key.find(' ');
-            string value = pos == string::npos ? "" : key.substr(pos+1);
-            key = key.substr(0, pos);
-            g_options[key] = value;
-            continue;
-        }
+    //
+    // Set global config variables
+    //
+    if (cfg.chunk_size != SRT_LIVE_DEF_PLSIZE)
+        transmit_chunk_size = cfg.chunk_size;
+    printformat = cfg.stats_pf;
+    transmit_bw_report    = cfg.bw_report;
+    transmit_stats_report = cfg.stats_report;
+    transmit_total_stats  = cfg.full_stats;
 
-        params.push_back(a);
-    }
-
-    if ( params.size() != 2 )
-    {
-        cerr << "Usage: " << argv[0] << " [options] <input-uri> <output-uri>\n";
-        cerr << "\t-t:<timeout=0> - exit timer in seconds\n";
-        cerr << "\t-c:<chunk=1316> - max size of data read in one step\n";
-        cerr << "\t-b:<bandwidth> - set SRT bandwidth\n";
-        cerr << "\t-r:<report-frequency=0> - bandwidth report frequency\n";
-        cerr << "\t-s:<stats-report-freq=0> - frequency of status report\n";
-        cerr << "\t-pf:<format> - printformat (json or default)\n";
-        cerr << "\t-statsreport:<filename> - stats report file name (cout for output to cout, or a filename)\n";
-        cerr << "\t-f - full counters in stats-report (prints total statistics)\n";
-        cerr << "\t-q - quiet mode (default no)\n";
-        cerr << "\t-v - verbose mode (default no)\n";
-        cerr << "\t-a - auto-reconnect mode, default yes, -a:no to disable\n";
-        return 1;
-    }
-
-    int timeout = stoi(Option("0", "t", "to", "timeout"), 0, 0);
-    unsigned long chunk = stoul(Option("0", "c", "chunk"), 0, 0);
-    if ( chunk == 0 )
-    {
-        chunk = SRT_LIVE_DEF_PLSIZE;
-    }
-    else
-    {
-        transmit_chunk_size = chunk;
-    }
-
-    bool quiet = Option("no", "q", "quiet") != "no";
-    Verbose::on = !quiet && Option("no", "v", "verbose") != "no";
-    string loglevel = Option("error", "loglevel");
-    string logfa = Option("general", "logfa");
-    string logfile = Option("", "logfile");
-    bool internal_log = Option("no", "loginternal") != "no";
-    bool autoreconnect = Option("yes", "a", "auto") != "no";
-    transmit_total_stats = Option("no", "f", "fullstats") != "no";
-
-    // Print format
-    const string pf = Option("default", "pf", "printformat");
-    if (pf == "json")
-    {
-        printformat = PRINT_FORMAT_JSON;
-    }
-    if (pf == "csv")
-    {
-        printformat = PRINT_FORMAT_CSV;
-    }
-    else if (pf != "default")
-    {
-        cerr << "ERROR: Unsupported print format: " << pf << endl;
-        return 1;
-    }
-
-    try
-    {
-        transmit_bw_report = stoul(Option("0", "r", "report", "bandwidth-report", "bitrate-report"));
-        transmit_stats_report = stoul(Option("0", "s", "stats", "stats-report-frequency"));
-    }
-    catch (std::invalid_argument &)
-    {
-        cerr << "ERROR: Incorrect integer number specified for an option.\n";
-        return 1;
-    }
-
-    std::ofstream logfile_stream; // leave unused if not set
-
-    srt_setloglevel(SrtParseLogLevel(loglevel));
-    set<srt_logging::LogFA> fas = SrtParseLogFA(logfa);
-    for (set<srt_logging::LogFA>::iterator i = fas.begin(); i != fas.end(); ++i)
+    //
+    // Set SRT log levels and functional areas
+    //
+    srt_setloglevel(cfg.loglevel);
+    for (set<srt_logging::LogFA>::iterator i = cfg.logfas.begin(); i != cfg.logfas.end(); ++i)
         srt_addlogfa(*i);
 
+    //
+    // SRT log handler
+    //
+    std::ofstream logfile_stream; // leave unused if not set
     char NAME[] = "SRTLIB";
-    if ( internal_log )
+    if (cfg.logfile.empty())
     {
         srt_setlogflags( 0
                 | SRT_LOGF_DISABLE_TIME
@@ -255,12 +377,12 @@ int main( int argc, char** argv )
                 );
         srt_setloghandler(NAME, TestLogHandler);
     }
-    else if ( logfile != "" )
+    else
     {
-        logfile_stream.open(logfile.c_str());
-        if ( !logfile_stream )
+        logfile_stream.open(cfg.logfile.c_str());
+        if (!logfile_stream)
         {
-            cerr << "ERROR: Can't open '" << logfile << "' for writing - fallback to cerr\n";
+            cerr << "ERROR: Can't open '" << cfg.logfile.c_str() << "' for writing - fallback to cerr\n";
         }
         else
         {
@@ -268,47 +390,51 @@ int main( int argc, char** argv )
         }
     }
 
+
+    //
+    // SRT stats output
+    //
     std::ofstream logfile_stats; // leave unused if not set
-    const string statsfile = Option("cout", "statsfile");
-    if (statsfile != "" && statsfile != "cout")
+    if (cfg.stats_out != "" && cfg.stats_out != "cout")
     {
-        logfile_stats.open(statsfile.c_str());
+        logfile_stats.open(cfg.stats_out.c_str());
         if (!logfile_stats)
         {
-            cerr << "ERROR: Can't open '" << statsfile << "' for writing stats. Fallback to cout.\n";
+            cerr << "ERROR: Can't open '" << cfg.stats_out << "' for writing stats. Fallback to cout.\n";
             logfile_stats.close();
         }
     }
 
     ostream &out_stats = logfile_stats.is_open() ? logfile_stats : cout;
 
+
 #ifdef _WIN32
 
-    if (timeout > 0)
+    if (cfg.timeout > 0)
     {
         cerr << "ERROR: The -timeout option (-t) is not implemented on Windows\n";
-        return 1;
+        return EXIT_FAILURE;
     }
 
 #else
-    if (timeout > 0)
+    if (cfg.timeout > 0)
     {
         signal(SIGALRM, OnAlarm_Interrupt);
         if (!quiet)
-            cerr << "TIMEOUT: will interrupt after " << timeout << "s\n";
-        alarm(timeout);
+            cerr << "TIMEOUT: will interrupt after " << cfg.timeout << "s\n";
+        alarm(cfg.timeout);
     }
 #endif
-    signal(SIGINT, OnINT_ForceExit);
+    signal(SIGINT,  OnINT_ForceExit);
     signal(SIGTERM, OnINT_ForceExit);
 
 
-    if (!quiet)
+    if (!cfg.quiet)
     {
         cerr << "Media path: '"
-            << params[0]
+            << cfg.source
             << "' --> '"
-            << params[1]
+            << cfg.target
             << "'\n";
     }
 
@@ -336,7 +462,7 @@ int main( int argc, char** argv )
         {
             if (!src.get())
             {
-                src = Source::Create(params[0]);
+                src = Source::Create(cfg.source);
                 if (!src.get())
                 {
                     cerr << "Unsupported source type" << endl;
@@ -381,7 +507,7 @@ int main( int argc, char** argv )
 
             if (!tar.get())
             {
-                tar = Target::Create(params[1]);
+                tar = Target::Create(cfg.target);
                 if (!tar.get())
                 {
                     cerr << "Unsupported target type" << endl;
@@ -454,10 +580,7 @@ int main( int argc, char** argv )
                     {
                         case SRTS_LISTENING:
                         {
-                            if ((false) && !quiet)
-                                cerr << "New SRT client connection" << endl;
-
-                            bool res = (issource) ?
+                            const bool res = (issource) ?
                                 src->AcceptNewClient() : tar->AcceptNewClient();
                             if (!res)
                             {
@@ -480,7 +603,7 @@ int main( int argc, char** argv )
                             }
                             else
                             {
-                                if (!quiet)
+                                if (!cfg.quiet)
                                 {
                                     cerr << "Accepted SRT "
                                         << dirstring
@@ -502,7 +625,7 @@ int main( int argc, char** argv )
                             {
                                 if (srcConnected)
                                 {
-                                    if (!quiet)
+                                    if (!cfg.quiet)
                                     {
                                         cerr << "SRT source disconnected"
                                             << endl;
@@ -512,12 +635,12 @@ int main( int argc, char** argv )
                             }
                             else if (tarConnected)
                             {
-                                if (!quiet)
+                                if (!cfg.quiet)
                                     cerr << "SRT target disconnected" << endl;
                                 tarConnected = false;
                             }
 
-                            if(!autoreconnect)
+                            if(!cfg.auto_reconnect)
                             {
                                 doabort = true;
                             }
@@ -538,14 +661,14 @@ int main( int argc, char** argv )
                             {
                                 if (!srcConnected)
                                 {
-                                    if (!quiet)
+                                    if (!cfg.quiet)
                                         cerr << "SRT source connected" << endl;
                                     srcConnected = true;
                                 }
                             }
                             else if (!tarConnected)
                             {
-                                if (!quiet)
+                                if (!cfg.quiet)
                                     cerr << "SRT target connected" << endl;
                                 tarConnected = true;
                             }
@@ -574,8 +697,8 @@ int main( int argc, char** argv )
                     while (dataqueue.size() < 10)
                     {
                         std::shared_ptr<bytevector> pdata(
-                            new bytevector(chunk));
-                        if (!src->Read(chunk, *pdata, out_stats) || (*pdata).empty())
+                            new bytevector(cfg.chunk_size));
+                        if (!src->Read(cfg.chunk_size, *pdata, out_stats) || (*pdata).empty())
                         {
                             break;
                         }
@@ -598,7 +721,7 @@ int main( int argc, char** argv )
                     dataqueue.pop_front();
                 }
 
-                if (!quiet && (lastReportedtLostBytes != lostBytes))
+                if (!cfg.quiet && (lastReportedtLostBytes != lostBytes))
                 {
                     std::time_t now(std::time(nullptr));
                     if (std::difftime(now, writeErrorLogTimer) >= 5.0)

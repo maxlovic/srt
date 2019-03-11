@@ -8,6 +8,7 @@
 # take selectively whichever parts they need.
 
 SOURCES
+argtable3.c
 logsupport.cpp
 socketoptions.cpp
 transmitmedia.cpp
@@ -16,6 +17,7 @@ verbose.cpp
 
 PRIVATE HEADERS
 apputil.hpp
+argtable3.h
 logsupport.hpp
 socketoptions.hpp
 transmitbase.hpp

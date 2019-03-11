@@ -29,6 +29,7 @@ written by
 #include <srt.h>
 #include <udt.h>
 
+#include "argtable3.h"
 #include "apputil.hpp"
 #include "uriparser.hpp"
 #include "logsupport.hpp"
@@ -71,6 +72,68 @@ void OnINT_ForceExit(int)
     Verb() << "\n-------- REQUESTED INTERRUPT!\n";
     interrupt = true;
 }
+
+
+int parse_args(int argc, char** argv)
+{
+    /*
+        cerr << "Usage: " << argv[0] << " [options] <input-uri> <output-uri>\n";
+        cerr << "\t-t:<timeout=0> - exit timer in seconds\n";
+        cerr << "\t-c:<chunk=1316> - max size of data read in one step\n";
+        cerr << "\t-b:<bandwidth> - set SRT bandwidth\n";
+        cerr << "\t-buffer:<buffer> - set SRT buffer\n";
+        cerr << "\t-r:<report-frequency=0> - bandwidth report frequency\n";
+        cerr << "\t-s:<stats-report-freq=0> - frequency of status report\n";
+        cerr << "\t-pf:<format> - printformat (json or default)\n";
+        cerr << "\t-statsreport:<filename> - stats report file name (cout for output to cout, or a filename)\n";
+        cerr << "\t-f - full counters in stats-report (prints total statistics)\n";
+        cerr << "\t-q - quiet mode (default no)\n";
+        cerr << "\t-v - verbose mode (default no)\n";
+    */
+
+    /* Define the allowable command line options, collecting them in argtable[] */
+    struct arg_int *tout = arg_int0("t", "timeout", "<sec>", "exit timer in seconds");
+    struct arg_lit *vers = arg_lit0(NULL, "version", "print version information and exit");
+    struct arg_lit *help = arg_lit0( "h",    "help", "print this help and exit");
+
+
+    /**/
+    struct arg_lit *n = arg_lit0("n", NULL, "do not output the trailing newline");
+    struct arg_lit *e = arg_lit0("e", NULL, "enable interpretation of the backslash-escaped characters listed below");
+    struct arg_lit *E = arg_lit0("E", NULL, "disable interpretation of those sequences in <string>s");
+    struct arg_lit *vers = arg_lit0(NULL, "version", "print version information and exit");
+    struct arg_str *strs = arg_strn(NULL, NULL, "STRING", 0, argc + 2, NULL);
+    struct arg_end *end = arg_end(20);
+    void* argtable[] = { n,e,E,help,vers,strs,end };
+    const char* progname = "echo";
+    int exitcode = 0;
+    int nerrors;
+
+    /* verify the argtable[] entries were allocated sucessfully */
+    if (arg_nullcheck(argtable) != 0)
+    {
+        /* NULL entries were detected, some allocations must have failed */
+        printf("%s: insufficient memory\n", progname);
+        arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+        return 1;
+    }
+
+    /* Parse the command line as defined by argtable[] */
+    nerrors = arg_parse(argc, argv, argtable);
+
+    /* special case: '--help' takes precedence over error reporting */
+    if (help->count > 0)
+    {
+        printf("Usage: %s", progname);
+        arg_print_syntax(stdout, argtable, "\n");
+        printf("Echo the STRINGs to standard output.\n\n");
+        arg_print_glossary(stdout, argtable, "  %-10s %s\n");
+        arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));
+        return 0;
+    }
+}
+
+
 
 int main( int argc, char** argv )
 {
