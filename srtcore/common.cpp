@@ -198,7 +198,7 @@ void CTimer::sleepto(uint64_t nexttime)
 
    while (t < m_ullSchedTime)
    {
-#ifndef NO_BUSY_WAITING
+#if USE_BUSY_WAITING
 #ifdef IA32
        __asm__ volatile ("pause; rep; nop; nop; nop; nop; nop;");
 #elif IA64
