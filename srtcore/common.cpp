@@ -209,6 +209,9 @@ void CTimer::sleepto(uint64_t nexttime)
 #endif
 #else
        const uint64_t wait_us = (m_ullSchedTime - t) / freq;
+       if (wait_us == 0)
+          break;
+
        THREAD_PAUSED();
        pthread_mutex_lock(&m_TickLock);
        condTimedWaitUS(&m_TickCond, &m_TickLock, wait_us);
