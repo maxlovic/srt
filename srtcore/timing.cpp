@@ -51,7 +51,7 @@ namespace timing
 };
 
 
-
+#if false
 uint64_t timing::get_timestamp_us()
 {
 #if defined(TIMING_USE_QPC)
@@ -101,3 +101,21 @@ uint64_t timing::get_timestamp_us()
 
 #endif
 }
+#endif
+
+
+
+void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
+{
+    std::unique_lock<std::mutex> lk(m_event_lock);
+    m_event.wait_until(lk, tp, [this]() { return m_sched_time <= steady_clock::now(); });
+}
+
+
+void srt::timing::Timer::wake_up()
+{
+    m_event.notify_one();
+}
+
+
+

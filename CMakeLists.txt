@@ -13,6 +13,7 @@ cmake_minimum_required (VERSION 2.8.12 FATAL_ERROR)
 #cmake_minimum_required (VERSION 3.0.2 FATAL_ERROR)
 #project(SRT VERSION "1.3.3")
 project(SRT C CXX)
+set(CMAKE_CXX_STANDARD 17)
 
 set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/scripts")
 include(haiUtil)

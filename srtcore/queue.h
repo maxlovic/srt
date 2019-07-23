@@ -147,7 +147,9 @@ private:
 struct CSNode
 {
    CUDT* m_pUDT;		// Pointer to the instance of CUDT socket
-   uint64_t m_llTimeStamp_tk;      // Time Stamp
+
+   srt::timing::time_point<srt::timing::steady_clock>
+                m_timeStamp;
 
    int m_iHeapLoc;		// location on the heap, -1 means not on the heap
 };
@@ -159,6 +161,11 @@ friend class CSndQueue;
 public:
    CSndUList();
    ~CSndUList();
+
+public:
+
+    using clock = srt::timing::steady_clock;
+    using time_point = srt::timing::time_point<clock>;
 
 public:
 
@@ -188,10 +195,10 @@ public:
       /// Retrieve the next scheduled processing time.
       /// @return Scheduled processing time of the first UDT socket in the list.
 
-   uint64_t getNextProcTime();
+   std::optional<time_point> getNextProcTime();
 
 private:
-   void insert_(int64_t ts, const CUDT* u);
+   void insert_(time_point ts, const CUDT* u);
    void remove_(const CUDT* u);
 
 private:
@@ -204,7 +211,7 @@ private:
    pthread_mutex_t* m_pWindowLock;
    pthread_cond_t* m_pWindowCond;
 
-   CTimer* m_pTimer;
+   srt::timing::Timer* m_pTimer;
 
 private:
    CSndUList(const CSndUList&);
@@ -355,7 +362,7 @@ public:
       /// @param [in] c UDP channel to be associated to the queue
       /// @param [in] t Timer
 
-   void init(CChannel* c, CTimer* t);
+   void init(CChannel* c, srt::timing::Timer* t);
 
       /// Send out a packet to a given address.
       /// @param [in] addr destination address
@@ -391,9 +398,9 @@ private:
 
 
 private:
-   CSndUList* m_pSndUList;		// List of UDT instances for data sending
+   CSndUList* m_pSndUList;              // List of UDT instances for data sending
    CChannel* m_pChannel;                // The UDP channel for data sending
-   CTimer* m_pTimer;			// Timing facility
+   srt::timing::Timer* m_pTimer;        // Timing facility
 
    pthread_mutex_t m_WindowLock;
    pthread_cond_t m_WindowCond;
@@ -442,9 +449,8 @@ public:
       /// @param [in] version IP version
       /// @param [in] hsize hash table size
       /// @param [in] c UDP channel to be associated to the queue
-      /// @param [in] t timer
 
-   void init(int size, int payload, int version, int hsize, CChannel* c, CTimer* t);
+   void init(int size, int payload, int version, int hsize, CChannel* c);
 
       /// Read a packet for a specific UDT socket id.
       /// @param [in] id Socket ID
@@ -473,7 +479,6 @@ private:
    CRcvUList* m_pRcvUList;		// List of UDT instances that will read packets from the queue
    CHash* m_pHash;			// Hash table for UDT socket looking up
    CChannel* m_pChannel;		// UDP channel for receving packets
-   CTimer* m_pTimer;			// shared timer with the snd queue
 
    int m_iPayloadSize;                  // packet payload size
 
@@ -515,7 +520,7 @@ struct CMultiplexer
    CSndQueue* m_pSndQueue;  // The sending queue
    CRcvQueue* m_pRcvQueue;  // The receiving queue
    CChannel* m_pChannel;    // The UDP channel for sending and receiving
-   CTimer* m_pTimer;        // The timer
+   srt::timing::Timer* m_pTimer;        // The timer
 
    int m_iPort;         // The UDP port number of this multiplexer
    int m_iIPversion;    // IP version

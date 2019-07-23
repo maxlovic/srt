@@ -611,8 +611,11 @@ private: // Sending related data
     CSndLossList* m_pSndLossList;                // Sender loss list
     CPktTimeWindow<16, 16> m_SndTimeWindow;            // Packet sending time window
 
-    volatile uint64_t m_ullInterval_tk;          // Inter-packet time, in CPU clock cycles
-    uint64_t m_ullTimeDiff_tk;                   // aggregate difference in inter-packet time
+    /*volatile*/ srt::timing::steady_clock::duration
+        m_sendInterval;          // Inter-packet time, in CPU clock cycles
+
+    /*volatile*/ srt::timing::steady_clock::duration
+        m_sendTimeDiff;                         // aggregate difference in inter-packet sending time
 
     volatile int m_iFlowWindowSize;              // Flow control window size
     volatile double m_dCongestionWindow;         // congestion window size
@@ -721,7 +724,9 @@ private: // Generation and processing of packets
     /// @return payload size on success, <=0 on failure
     int packLostData(CPacket& packet, uint64_t& origintime);
 
-    int packData(CPacket& packet, uint64_t& ts);
+    std::pair<int, CSndUList::time_point>
+        packData(CPacket& packet);
+
     int processData(CUnit* unit);
     void processClose();
     int processConnectRequest(const sockaddr* addr, CPacket& packet);
@@ -800,14 +805,14 @@ private: // Timers
     volatile uint64_t m_ullNAKInt_tk;         // NAK interval
     volatile uint64_t m_ullLastRspTime_tk;    // time stamp of last response from the peer
     volatile uint64_t m_ullLastRspAckTime_tk; // time stamp of last ACK from the peer
-    volatile uint64_t m_ullLastSndTime_tk;    // time stamp of last data/ctrl sent (in system ticks)
+    /*volatile*/ CSndUList::time_point m_lastSndTime;    // time stamp of last data/ctrl sent (in system ticks)
     uint64_t m_ullMinNakInt_tk;               // NAK timeout lower bound; too small value can cause unnecessary retransmission
     uint64_t m_ullMinExpInt_tk;               // timeout lower bound threshold: too small timeout can cause problem
 
     int m_iPktCount;                          // packet counter for ACK
     int m_iLightACKCount;                     // light ACK counter
 
-    uint64_t m_ullTargetTime_tk;              // scheduled time of next packet sending
+    std::optional<CSndUList::time_point> m_nextSendTime;     // scheduled time of next packet sending
 
     void checkTimers();
     void checkACKTimer (uint64_t currtime_tk);

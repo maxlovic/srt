@@ -1275,7 +1275,8 @@ void CUDT::open()
    if (m_pSNode == NULL)
       m_pSNode = new CSNode;
    m_pSNode->m_pUDT = this;
-   m_pSNode->m_llTimeStamp_tk = 1;
+#pragma message(__FILE__ "(" $Line ") : Reminder: " "m_pSNode->m_timeStamp used to be initialized with 1.");
+   m_pSNode->m_timeStamp = srt::timing::steady_clock::now();
    m_pSNode->m_iHeapLoc = -1;
 
    if (m_pRNode == NULL)
@@ -1317,14 +1318,14 @@ void CUDT::open()
    m_ullNextACKTime_tk    = currtime_tk + m_ullSYNInt_tk;
    m_ullNextNAKTime_tk    = currtime_tk + m_ullNAKInt_tk;
    m_ullLastRspAckTime_tk = currtime_tk;
-   m_ullLastSndTime_tk    = currtime_tk;
+   m_lastSndTime = srt::timing::steady_clock::now();
    m_iReXmitCount = 1;
 
    m_iPktCount = 0;
    m_iLightACKCount = 1;
 
-   m_ullTargetTime_tk = 0;
-   m_ullTimeDiff_tk = 0;
+   m_nextSendTime = std::nullopt;
+   m_sendTimeDiff = m_sendTimeDiff.zero();
 
    // Now UDT is opened.
    m_bOpened = true;
@@ -4730,7 +4731,7 @@ void CUDT::setupCC()
     m_ullNextACKTime_tk    = currtime_tk + m_ullSYNInt_tk;
     m_ullNextNAKTime_tk    = currtime_tk + m_ullNAKInt_tk;
     m_ullLastRspAckTime_tk = currtime_tk;
-    m_ullLastSndTime_tk    = currtime_tk;
+    m_lastSndTime = srt::timing::steady_clock::now();
 
 
     HLOGC(mglog.Debug, log << "setupCC: setting parameters: mss=" << m_iMSS
@@ -5970,7 +5971,7 @@ void CUDT::sample(CPerfMon* perf, bool clear)
    perf->mbpsSendRate = double(m_stats.traceSent) * m_iMaxSRTPayloadSize * 8.0 / interval;
    perf->mbpsRecvRate = double(m_stats.traceRecv) * m_iMaxSRTPayloadSize * 8.0 / interval;
 
-   perf->usPktSndPeriod = m_ullInterval_tk / double(m_ullCPUFrequency);
+   perf->usPktSndPeriod = std::chrono::duration_cast<std::chrono::microseconds>(m_sendInterval).count();
    perf->pktFlowWindow = m_iFlowWindowSize;
    perf->pktCongestionWindow = (int)m_dCongestionWindow;
    perf->pktFlightSize = CSeqNo::seqlen(m_iSndLastAck, CSeqNo::incseq(m_iSndCurrSeqNo)) - 1;
@@ -6091,7 +6092,7 @@ void CUDT::bstats(CBytePerfMon* perf, bool clear, bool instantaneous)
    perf->mbpsRecvRate = double(perf->byteRecv) * 8.0 / interval;
    //<
 
-   perf->usPktSndPeriod = m_ullInterval_tk / double(m_ullCPUFrequency);
+   perf->usPktSndPeriod = std::chrono::duration_cast<std::chrono::microseconds>(m_sendInterval).count();
    perf->pktFlowWindow = m_iFlowWindowSize;
    perf->pktCongestionWindow = (int)m_dCongestionWindow;
    perf->pktFlightSize = CSeqNo::seqlen(m_iSndLastAck, CSeqNo::incseq(m_iSndCurrSeqNo)) - 1;
@@ -6310,7 +6311,7 @@ void CUDT::updateCC(ETransmissionEvent evt, EventVariant arg)
         // NOTE: THESE things come from CCC class:
         // - m_dPktSndPeriod
         // - m_dCWndSize
-        m_ullInterval_tk = (uint64_t)(m_CongCtl->pktSndPeriod_us() * m_ullCPUFrequency);
+        m_sendInterval = std::chrono::microseconds((long) m_CongCtl->pktSndPeriod_us());
         m_dCongestionWindow = m_CongCtl->cgWindowSize();
 #if ENABLE_HEAVY_LOGGING
         HLOGC(mglog.Debug, log << "updateCC: updated values from congctl: interval=" << m_ullInterval_tk
@@ -6736,7 +6737,7 @@ void CUDT::sendCtrl(UDTMessageType pkttype, void* lparam, void* rparam, int size
 
    // Fix keepalive
    if (nbsent)
-      m_ullLastSndTime_tk = currtime_tk;
+       m_lastSndTime = srt::timing::steady_clock::now();
 }
 
 void CUDT::processCtrl(CPacket& ctrlpkt)
@@ -7139,7 +7140,7 @@ void CUDT::processCtrl(CPacket& ctrlpkt)
 
    case UMSG_CGWARNING: //100 - Delay Warning
       // One way packet delay is increasing, so decrease the sending rate
-      m_ullInterval_tk = (uint64_t)ceil(m_ullInterval_tk * 1.125);
+      m_sendInterval *= 1.125;
       m_iLastDecSeq = m_iSndCurrSeqNo;
       // XXX Note as interesting fact: this is only prepared for handling,
       // but nothing in the code is sending this message. Probably predicted
@@ -7245,9 +7246,7 @@ void CUDT::processCtrl(CPacket& ctrlpkt)
              int nbsent = m_pSndQueue->sendto(m_pPeerAddr, response);
              if (nbsent)
              {
-                 uint64_t currtime_tk;
-                 CTimer::rdtsc(currtime_tk);
-                 m_ullLastSndTime_tk = currtime_tk;
+                 m_lastSndTime = srt::timing::steady_clock::now();
              }
          }
 
@@ -7485,57 +7484,29 @@ int CUDT::packLostData(CPacket& packet, uint64_t& origintime)
 }
 
 
-int CUDT::packData(CPacket& packet, uint64_t& ts_tk)
+
+// ts_tk = 0; does not make sense, because return value is checked.
+// Both 0 and -1 will result in no rescheduling.
+std::pair<int, CSndUList::time_point> CUDT::packData(CPacket& packet)
 {
-   int payload = 0;
    bool probe = false;
    uint64_t origintime = 0;
 
    int kflg = EK_NOENC;
 
-   uint64_t entertime_tk;
-   CTimer::rdtsc(entertime_tk);
+   const CSndUList::time_point enter_time = CSndUList::clock::now();
 
-#if 0//debug: TimeDiff histogram
-   static int lldiffhisto[23] = {0};
-   static int llnodiff = 0;
-   if (m_ullTargetTime_tk != 0)
-   {
-      int ofs = 11 + ((entertime_tk - m_ullTargetTime_tk)/(int64_t)m_ullCPUFrequency)/1000;
-      if (ofs < 0) ofs = 0;
-      else if (ofs > 22) ofs = 22;
-      lldiffhisto[ofs]++;
-   }
-   else if(m_ullTargetTime_tk == 0)
-   {
-      llnodiff++;
-   }
-   static int callcnt = 0;
-   if (!(callcnt++ % 5000)) {
-      fprintf(stderr, "%6d %6d %6d %6d %6d %6d %6d %6d %6d %6d %6d %6d\n",
-        lldiffhisto[0],lldiffhisto[1],lldiffhisto[2],lldiffhisto[3],lldiffhisto[4],lldiffhisto[5],
-        lldiffhisto[6],lldiffhisto[7],lldiffhisto[8],lldiffhisto[9],lldiffhisto[10],lldiffhisto[11]);
-      fprintf(stderr, "%6d %6d %6d %6d %6d %6d %6d %6d %6d %6d %6d %6d\n",
-        lldiffhisto[12],lldiffhisto[13],lldiffhisto[14],lldiffhisto[15],lldiffhisto[16],lldiffhisto[17],
-        lldiffhisto[18],lldiffhisto[19],lldiffhisto[20],lldiffhisto[21],lldiffhisto[21],llnodiff);
-   }
-#endif
-   if ((0 != m_ullTargetTime_tk) && (entertime_tk > m_ullTargetTime_tk))
-      m_ullTimeDiff_tk += entertime_tk - m_ullTargetTime_tk;
+   if (m_nextSendTime)
+      m_sendTimeDiff += enter_time - m_nextSendTime.value();
 
-   string reason;
+   string reason = "reXmit";
 
-   payload = packLostData(packet, origintime);
-   if (payload > 0)
-   {
-       reason = "reXmit";
-   }
-   else
+   int payload = packLostData(packet, origintime);
+   if (payload <= 0)
    {
       // If no loss, pack a new packet.
-
       // check congestion/flow window limit
-      int cwnd = std::min(int(m_iFlowWindowSize), int(m_dCongestionWindow));
+      const int cwnd = std::min(int(m_iFlowWindowSize), int(m_dCongestionWindow));
       int seqdiff = CSeqNo::seqlen(m_iSndLastAck, CSeqNo::incseq(m_iSndCurrSeqNo));
       if (cwnd >= seqdiff)
       {
@@ -7558,20 +7529,18 @@ int CUDT::packData(CPacket& packet, uint64_t& ts_tk)
          }
          else
          {
-            m_ullTargetTime_tk = 0;
-            m_ullTimeDiff_tk = 0;
-            ts_tk = 0;
-            return 0;
+            m_nextSendTime = std::nullopt;
+            m_sendTimeDiff = m_sendTimeDiff.zero();
+            return std::make_pair(0, enter_time);
          }
       }
       else
       {
           HLOGC(dlog.Debug, log << "packData: CONGESTED: cwnd=min(" << m_iFlowWindowSize << "," << m_dCongestionWindow
               << ")=" << cwnd << " seqlen=(" << m_iSndLastAck << "-" << m_iSndCurrSeqNo << ")=" << seqdiff);
-         m_ullTargetTime_tk = 0;
-         m_ullTimeDiff_tk = 0;
-         ts_tk = 0;
-         return 0;
+          m_nextSendTime = std::nullopt;
+          m_sendTimeDiff = m_sendTimeDiff.zero();
+         return std::make_pair(0, enter_time);
       }
 
       reason = "normal";
@@ -7608,9 +7577,9 @@ int CUDT::packData(CPacket& packet, uint64_t& ts_tk)
       {
           // Encryption failed 
           //>>Add stats for crypto failure
-          ts_tk = 0;
           LOGC(dlog.Error, log << "ENCRYPT FAILED - packet won't be sent, size=" << payload);
-          return -1; //Encryption failed
+          //Encryption failed
+          return std::make_pair(-1, enter_time);
       }
       payload = packet.getLength(); /* Cipher may change length */
       reason += " (encrypted)";
@@ -7623,7 +7592,7 @@ int CUDT::packData(CPacket& packet, uint64_t& ts_tk)
 #endif
 
    // Fix keepalive
-   m_ullLastSndTime_tk = entertime_tk;
+   m_lastSndTime = enter_time;
 
    considerLegacySrtHandshake(0);
 
@@ -7649,30 +7618,29 @@ int CUDT::packData(CPacket& packet, uint64_t& ts_tk)
    if (probe)
    {
       // sends out probing packet pair
-      ts_tk = entertime_tk;
+      m_nextSendTime = enter_time;
       probe = false;
    }
    else
    {
 #if USE_BUSY_WAITING
-      ts_tk = entertime_tk + m_ullInterval_tk;
+      ts_tk = entertime_tk + m_sendInterval;
 #else
-      if (m_ullTimeDiff_tk >= m_ullInterval_tk)
+      if (m_sendTimeDiff >= m_sendInterval)
       {
-         ts_tk = entertime_tk;
-         m_ullTimeDiff_tk -= m_ullInterval_tk;
+          // Send immidiately
+          m_nextSendTime = enter_time;
+          m_sendTimeDiff -= m_sendInterval;
       }
       else
       {
-         ts_tk = entertime_tk + m_ullInterval_tk - m_ullTimeDiff_tk;
-         m_ullTimeDiff_tk = 0;
+          m_nextSendTime = enter_time + m_sendInterval - m_sendTimeDiff;
+          m_sendTimeDiff = m_sendTimeDiff.zero();
       }
 #endif
    }
 
-   m_ullTargetTime_tk = ts_tk;
-
-   return payload;
+   return std::make_pair(payload, m_nextSendTime.value());
 }
 
 // This is a close request, but called from the 

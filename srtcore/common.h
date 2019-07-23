@@ -64,8 +64,12 @@ modified by
    //#include <windows.h>
 #endif
 #include <pthread.h>
+
+#include <optional>
+
 #include "udt.h"
 #include "utilities.h"
+#include "timing.h"
 
 
 #ifdef _DEBUG

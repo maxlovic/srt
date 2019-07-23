@@ -1759,14 +1759,14 @@ void CUDTUnited::updateMux(
    else
       delete (sockaddr_in6*)sa;
 
-   m.m_pTimer = new CTimer;
+   m.m_pTimer = new srt::timing::Timer;
 
    m.m_pSndQueue = new CSndQueue;
    m.m_pSndQueue->init(m.m_pChannel, m.m_pTimer);
    m.m_pRcvQueue = new CRcvQueue;
    m.m_pRcvQueue->init(
       32, s->m_pUDT->maxPayloadSize(), m.m_iIPversion, 1024,
-      m.m_pChannel, m.m_pTimer);
+      m.m_pChannel);
 
    m_mMultiplexer[m.m_iID] = m;
 
