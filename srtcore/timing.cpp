@@ -1,4 +1,18 @@
 ﻿#include "timing.h"
+#include "logging.h"
+
+namespace srt_logging
+{
+
+    extern Logger
+        glog,
+        //    blog,
+        mglog,
+        dlog,
+        tslog,
+        rxlog;
+
+}
 
 #if defined(_WIN32)
 #define TIMING_USE_QPC
@@ -107,8 +121,14 @@ uint64_t timing::get_timestamp_us()
 
 void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
 {
+    using namespace srt_logging;
+    LOGC(dlog.Note, log << "Timer::wait_until delta="
+        << std::chrono::duration_cast<std::chrono::microseconds>(tp - steady_clock::now()).count() << " us");
     std::unique_lock<std::mutex> lk(m_event_lock);
+    m_sched_time = tp;
     m_event.wait_until(lk, tp, [this]() { return m_sched_time <= steady_clock::now(); });
+
+    LOGC(dlog.Note, log << "Timer::wait_until - woke up");
 }
 
 

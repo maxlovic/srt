@@ -603,11 +603,11 @@ void* CSndQueue::worker(void* param)
         }
         if (pkt.isControl())
         {
-            HLOGC(mglog.Debug, log << self->CONID() << "chn:SENDING: " << MessageTypeStr(pkt.getType(), pkt.getExtendedType()));
+            LOGC(mglog.Note, log << self->CONID() << "chn:SENDING: " << MessageTypeStr(pkt.getType(), pkt.getExtendedType()));
         }
         else
         {
-            HLOGC(dlog.Debug, log << self->CONID() << "chn:SENDING SIZE " << pkt.getLength() << " SEQ: " << pkt.getSeqNo());
+            LOGC(dlog.Note, log << self->CONID() << "chn:SENDING SIZE " << pkt.getLength() << " SEQ: " << pkt.getSeqNo());
         }
         self->m_pChannel->sendto(addr, pkt);
 
