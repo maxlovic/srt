@@ -5971,7 +5971,7 @@ void CUDT::sample(CPerfMon* perf, bool clear)
    perf->mbpsSendRate = double(m_stats.traceSent) * m_iMaxSRTPayloadSize * 8.0 / interval;
    perf->mbpsRecvRate = double(m_stats.traceRecv) * m_iMaxSRTPayloadSize * 8.0 / interval;
 
-   perf->usPktSndPeriod = std::chrono::duration_cast<std::chrono::microseconds>(m_sendInterval).count();
+   perf->usPktSndPeriod = srt::timing::to_microseconds(m_sendInterval);
    perf->pktFlowWindow = m_iFlowWindowSize;
    perf->pktCongestionWindow = (int)m_dCongestionWindow;
    perf->pktFlightSize = CSeqNo::seqlen(m_iSndLastAck, CSeqNo::incseq(m_iSndCurrSeqNo)) - 1;
@@ -6092,7 +6092,7 @@ void CUDT::bstats(CBytePerfMon* perf, bool clear, bool instantaneous)
    perf->mbpsRecvRate = double(perf->byteRecv) * 8.0 / interval;
    //<
 
-   perf->usPktSndPeriod = std::chrono::duration_cast<std::chrono::microseconds>(m_sendInterval).count();
+   perf->usPktSndPeriod = srt::timing::to_microseconds(m_sendInterval);
    perf->pktFlowWindow = m_iFlowWindowSize;
    perf->pktCongestionWindow = (int)m_dCongestionWindow;
    perf->pktFlightSize = CSeqNo::seqlen(m_iSndLastAck, CSeqNo::incseq(m_iSndCurrSeqNo)) - 1;
@@ -6311,7 +6311,7 @@ void CUDT::updateCC(ETransmissionEvent evt, EventVariant arg)
         // NOTE: THESE things come from CCC class:
         // - m_dPktSndPeriod
         // - m_dCWndSize
-        m_sendInterval = std::chrono::microseconds((long) m_CongCtl->pktSndPeriod_us());
+        m_sendInterval = srt::timing::from_microseconds((long) m_CongCtl->pktSndPeriod_us());
         m_dCongestionWindow = m_CongCtl->cgWindowSize();
 #if ENABLE_HEAVY_LOGGING
         HLOGC(mglog.Debug, log << "updateCC: updated values from congctl: interval=" << m_ullInterval_tk
@@ -7634,7 +7634,7 @@ std::pair<int, CSndUList::time_point> CUDT::packData(CPacket& packet)
       }
       else
       {
-          m_nextSendTime = enter_time + m_sendInterval - m_sendTimeDiff;
+          m_nextSendTime = enter_time + (m_sendInterval - m_sendTimeDiff);
           m_sendTimeDiff = m_sendTimeDiff.zero();
       }
 #endif
@@ -8790,8 +8790,9 @@ void CUDT::checkTimers()
     // Check if FAST or LATE packet retransmission is required
     checkRexmitTimer(currtime_tk);
 
+    const auto curtp = srt::timing::steady_clock::now();
     //   uint64_t exp_int = (m_iRTT + 4 * m_iRTTVar + COMM_SYN_INTERVAL_US) * m_ullCPUFrequency;
-    if (currtime_tk > m_ullLastSndTime_tk + (COMM_KEEPALIVE_PERIOD_US * m_ullCPUFrequency))
+    if (curtp > m_lastSndTime + srt::timing::from_microseconds(COMM_KEEPALIVE_PERIOD_US))
     {
         sendCtrl(UMSG_KEEPALIVE);
         HLOGP(mglog.Debug, "KEEPALIVE");
