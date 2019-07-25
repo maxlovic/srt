@@ -9,7 +9,7 @@
  */
 #pragma once
 
-//#define USE_STL_CHRONO
+#define USE_STL_CHRONO
 
 
 #include <cstdlib>
@@ -57,13 +57,13 @@ namespace srt
         uint64_t get_timestamp_us();
 
 
-        long long to_microseconds(const steady_clock::duration& t)
+        inline long long to_microseconds(const steady_clock::duration& t)
         {
             return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
         }
 
 
-        steady_clock::duration from_microseconds(long t_us)
+        inline steady_clock::duration from_microseconds(long t_us)
         {
             return std::chrono::microseconds(t_us);
         }

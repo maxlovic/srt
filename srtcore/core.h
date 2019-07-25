@@ -266,7 +266,6 @@ public: // internal API
     int MSS() { return m_iMSS; }
     size_t maxPayloadSize() { return m_iMaxSRTPayloadSize; }
     size_t OPT_PayloadSize() { return m_zOPT_ExpPayloadSize; }
-    uint64_t minNAKInterval() { return m_ullMinNakInt_tk; }
     int32_t ISN() { return m_iISN; }
 
     // XXX See CUDT::tsbpd() to see how to implement it. This should
@@ -620,6 +619,26 @@ private: // Sending related data
     volatile int m_iFlowWindowSize;              // Flow control window size
     volatile double m_dCongestionWindow;         // congestion window size
 
+private:    // Timers
+    //uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for Timer, ticks per microsecond
+    /*volatile*/ CSndUList::time_point m_nextACKTime;             // Next ACK time, in CPU clock cycles, same below
+    /*volatile*/ CSndUList::time_point m_nextNAKTime;             // Next NAK time
+
+    /*volatile*/ srt::timing::steady_clock::duration m_SYNInterval;    // SYN interval
+    /*volatile*/ srt::timing::steady_clock::duration m_ACKInterval;    // ACK interval
+    /*volatile*/ srt::timing::steady_clock::duration m_NAKInterval;    // NAK interval
+    /*volatile*/ CSndUList::time_point m_lastRspTime;    // time stamp of last response from the peer
+    /*volatile*/ CSndUList::time_point m_lastRspAckTime; // time stamp of last ACK from the peer
+    /*volatile*/ CSndUList::time_point m_lastSndTime;    // time stamp of last data/ctrl sent (in system ticks)
+    CSndUList::time_point m_lastAckTime;                // Timestamp of last ACK
+    srt::timing::steady_clock::duration m_minNakInterval;               // NAK timeout lower bound; too small value can cause unnecessary retransmission
+    srt::timing::steady_clock::duration m_minExpInterval;               // timeout lower bound threshold: too small timeout can cause problem
+
+    int m_iPktCount;                          // packet counter for ACK
+    int m_iLightACKCount;                     // light ACK counter
+
+    std::optional<CSndUList::time_point> m_nextSendTime;     // scheduled time of next packet sending
+
     volatile int32_t m_iSndLastFullAck;          // Last full ACK received
     volatile int32_t m_iSndLastAck;              // Last ACK received
     volatile int32_t m_iSndLastDataAck;          // The real last ACK that updates the sender buffer and loss list
@@ -651,7 +670,6 @@ private: // Receiving related data
     int32_t m_iDebugPrevLastAck;
 #endif
     int32_t m_iRcvLastSkipAck;                   // Last dropped sequence ACK
-    uint64_t m_ullLastAckTime_tk;                // Timestamp of last ACK
     int32_t m_iRcvLastAckAck;                    // Last sent ACK that has been acknowledged
     int32_t m_iAckSeqNo;                         // Last ACK sequence number
     int32_t m_iRcvCurrSeqNo;                     // Largest received sequence number
@@ -795,30 +813,13 @@ public:
 
     static const size_t MAX_SID_LENGTH = 512;
 
-private: // Timers
-    uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for Timer, ticks per microsecond
-    uint64_t m_ullNextACKTime_tk;             // Next ACK time, in CPU clock cycles, same below
-    uint64_t m_ullNextNAKTime_tk;             // Next NAK time
-
-    volatile uint64_t m_ullSYNInt_tk;         // SYN interval
-    volatile uint64_t m_ullACKInt_tk;         // ACK interval
-    volatile uint64_t m_ullNAKInt_tk;         // NAK interval
-    volatile uint64_t m_ullLastRspTime_tk;    // time stamp of last response from the peer
-    volatile uint64_t m_ullLastRspAckTime_tk; // time stamp of last ACK from the peer
-    /*volatile*/ CSndUList::time_point m_lastSndTime;    // time stamp of last data/ctrl sent (in system ticks)
-    uint64_t m_ullMinNakInt_tk;               // NAK timeout lower bound; too small value can cause unnecessary retransmission
-    uint64_t m_ullMinExpInt_tk;               // timeout lower bound threshold: too small timeout can cause problem
-
-    int m_iPktCount;                          // packet counter for ACK
-    int m_iLightACKCount;                     // light ACK counter
-
-    std::optional<CSndUList::time_point> m_nextSendTime;     // scheduled time of next packet sending
+private: // Timers functions
 
     void checkTimers();
-    void checkACKTimer (uint64_t currtime_tk);
-    void checkNAKTimer(uint64_t currtime_tk);
-    bool checkExpTimer (uint64_t currtime_tk);  // returns true if the connection is expired
-    void checkRexmitTimer(uint64_t currtime_tk);
+    void checkACKTimer (const srt::timing::time_point<srt::timing::steady_clock>& currtime);
+    void checkNAKTimer(const srt::timing::time_point<srt::timing::steady_clock>& currtime);
+    bool checkExpTimer (const srt::timing::time_point<srt::timing::steady_clock>& currtime);  // returns true if the connection is expired
+    void checkRexmitTimer(const srt::timing::time_point<srt::timing::steady_clock>& currtime);
 
 public: // For the use of CCryptoControl
     // HaiCrypt configuration
