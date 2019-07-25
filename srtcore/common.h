@@ -445,43 +445,8 @@ public:
    CTimer();
    ~CTimer();
 
-public:
-
-      /// Seelp until CC "nexttime".
-      /// @param [in] nexttime next time the caller is waken up.
-
-   void sleepto(uint64_t nexttime);
-
-      /// Stop the sleep() or sleepto() methods.
-
-   void interrupt();
-
-      /// trigger the clock for a tick, for better granuality in no_busy_waiting timer.
-
-   void tick();
 
 public:
-
-      /// Read the CPU clock cycle into x.
-      /// @param [out] x to record cpu clock cycles.
-
-   static void rdtsc(uint64_t &x);
-
-      /// Get the CPU frequency in counts per microsecond.
-      /// @return CPU frequency.
-
-   static uint64_t getCPUFrequency();
-
-      /// check the current time, 64bit, in microseconds.
-      /// @return current time in microseconds.
-
-   static uint64_t getTime();
-
-
-      /// Get the current timestamp, 64bit. Should be used for interval measurements.
-      /// @return current timestamp in microseconds.
-
-   static uint64_t getTimestampMicroSec();
 
       /// trigger an event such as new connection, close, new data, etc. for "select" call.
 
@@ -510,18 +475,10 @@ public:
    static int condTimedWaitUS(pthread_cond_t* cond, pthread_mutex_t* mutex, uint64_t delay);
 
 private:
-   uint64_t m_ullSchedTime;             // next schedulled time
-
-   pthread_cond_t m_TickCond;
-   pthread_mutex_t m_TickLock;
 
    static pthread_cond_t m_EventCond;
    static pthread_mutex_t m_EventLock;
 
-private:
-   static uint64_t s_ullCPUFrequency;	// CPU frequency : clock cycles per microsecond
-   static uint64_t readCPUFrequency();
-   static bool m_bUseMicroSecond;       // No higher resolution timer available, use gettimeofday().
 };
 
 ////////////////////////////////////////////////////////////////////////////////

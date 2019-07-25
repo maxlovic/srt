@@ -68,6 +68,16 @@ namespace srt
             return std::chrono::microseconds(t_us);
         }
 
+
+        template<
+            class Clock,
+            class Duration = typename Clock::duration
+        >
+        inline bool is_zero(const time_point<Clock, Duration> &tp)
+        {
+            return tp.time_since_epoch() == Clock::duration::zero();
+        }
+
 #else
 
 

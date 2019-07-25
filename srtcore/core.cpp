@@ -1210,9 +1210,9 @@ void CUDT::clearData()
 
    // trace information
    CGuard::enterCS(m_StatsLock);
-   m_stats.startTime = CTimer::getTime();
+   m_stats.startTime = srt::timing::steady_clock::now();
    m_stats.sentTotal = m_stats.recvTotal = m_stats.sndLossTotal = m_stats.rcvLossTotal = m_stats.retransTotal = m_stats.sentACKTotal = m_stats.recvACKTotal = m_stats.sentNAKTotal = m_stats.recvNAKTotal = 0;
-   m_stats.lastSampleTime = CTimer::getTime();
+   m_stats.lastSampleTime = srt::timing::steady_clock::now();
    m_stats.traceSent = m_stats.traceRecv = m_stats.traceSndLoss = m_stats.traceRcvLoss = m_stats.traceRetrans = m_stats.sentACK = m_stats.recvACK = m_stats.sentNAK = m_stats.recvNAK = 0;
    m_stats.traceRcvRetrans = 0;
    m_stats.traceReorderDistance = 0;
@@ -1262,7 +1262,7 @@ void CUDT::clearData()
 
 
    m_RdvState = CHandShake::RDV_INVALID;
-   m_ullRcvPeerStartTime = 0;
+   m_ullRcvPeerStartTime = srt::timing::steady_clock::time_point();
 }
 
 void CUDT::open()
@@ -1429,60 +1429,58 @@ size_t CUDT::fillSrtHandshake_HSRSP(uint32_t* srtdata, size_t /* srtlen - unused
     // Setting m_ullRcvPeerStartTime is done ine processSrtMsg_HSREQ(), so
     // this condition will be skipped only if this function is called without
     // getting first received HSREQ. Doesn't look possible in both HSv4 and HSv5.
-    if (m_ullRcvPeerStartTime != 0)
-    {
-        // If Agent doesn't set TSBPD, it will not set the TSBPD flag back to the Peer.
-        // The peer doesn't have be disturbed by it anyway.
-        if (m_bTsbPd)
-        {
-            /* 
-             * We got and transposed peer start time (HandShake request timestamp),
-             * we can support Timestamp-based Packet Delivery
-             */
-            srtdata[SRT_HS_FLAGS] |= SRT_OPT_TSBPDRCV;
-
-            if ( hs_version < HS_VERSION_SRT1 )
-            {
-                // HSv4 - this uses only one value
-                srtdata[SRT_HS_LATENCY] = SRT_HS_LATENCY_LEG::wrap(m_iTsbPdDelay_ms);
-            }
-            else
-            {
-                // HSv5 - this puts "agent's" latency into RCV field and "peer's" -
-                // into SND field.
-                srtdata[SRT_HS_LATENCY] = SRT_HS_LATENCY_RCV::wrap(m_iTsbPdDelay_ms);
-            }
-        }
-        else
-        {
-            HLOGC(mglog.Debug, log << "HSRSP/snd: TSBPD off, NOT responding TSBPDRCV flag.");
-        }
-
-        // Hsv5, only when peer has declared TSBPD mode.
-        // The flag was already set, and the value already "maximized" in processSrtMsg_HSREQ().
-        if (m_bPeerTsbPd && hs_version >= HS_VERSION_SRT1 )
-        {
-            // HSv5 is bidirectional - so send the TSBPDSND flag, and place also the
-            // peer's latency into SND field.
-            srtdata[SRT_HS_FLAGS] |= SRT_OPT_TSBPDSND;
-            srtdata[SRT_HS_LATENCY] |= SRT_HS_LATENCY_SND::wrap(m_iPeerTsbPdDelay_ms);
-
-            HLOGC(mglog.Debug, log << "HSRSP/snd: HSv5 peer uses TSBPD, responding TSBPDSND latency=" << m_iPeerTsbPdDelay_ms);
-        }
-        else
-        {
-            HLOGC(mglog.Debug, log << "HSRSP/snd: HSv" << (hs_version == CUDT::HS_VERSION_UDT4 ? 4 : 5)
-                << " with peer TSBPD=" << (m_bPeerTsbPd ? "on" : "off") << " - NOT responding TSBPDSND");
-        }
-
-        if (m_bTLPktDrop)
-            srtdata[SRT_HS_FLAGS] |= SRT_OPT_TLPKTDROP;
-    }
-    else
+    if (srt::timing::is_zero(m_ullRcvPeerStartTime))
     {
         LOGC(mglog.Fatal, log << "IPE: fillSrtHandshake_HSRSP: m_ullRcvPeerStartTime NOT SET!");
         return 0;
     }
+
+    // If Agent doesn't set TSBPD, it will not set the TSBPD flag back to the Peer.
+    // The peer doesn't have be disturbed by it anyway.
+    if (m_bTsbPd)
+    {
+        /* 
+            * We got and transposed peer start time (HandShake request timestamp),
+            * we can support Timestamp-based Packet Delivery
+            */
+        srtdata[SRT_HS_FLAGS] |= SRT_OPT_TSBPDRCV;
+
+        if ( hs_version < HS_VERSION_SRT1 )
+        {
+            // HSv4 - this uses only one value
+            srtdata[SRT_HS_LATENCY] = SRT_HS_LATENCY_LEG::wrap(m_iTsbPdDelay_ms);
+        }
+        else
+        {
+            // HSv5 - this puts "agent's" latency into RCV field and "peer's" -
+            // into SND field.
+            srtdata[SRT_HS_LATENCY] = SRT_HS_LATENCY_RCV::wrap(m_iTsbPdDelay_ms);
+        }
+    }
+    else
+    {
+        HLOGC(mglog.Debug, log << "HSRSP/snd: TSBPD off, NOT responding TSBPDRCV flag.");
+    }
+
+    // Hsv5, only when peer has declared TSBPD mode.
+    // The flag was already set, and the value already "maximized" in processSrtMsg_HSREQ().
+    if (m_bPeerTsbPd && hs_version >= HS_VERSION_SRT1 )
+    {
+        // HSv5 is bidirectional - so send the TSBPDSND flag, and place also the
+        // peer's latency into SND field.
+        srtdata[SRT_HS_FLAGS] |= SRT_OPT_TSBPDSND;
+        srtdata[SRT_HS_LATENCY] |= SRT_HS_LATENCY_SND::wrap(m_iPeerTsbPdDelay_ms);
+
+        HLOGC(mglog.Debug, log << "HSRSP/snd: HSv5 peer uses TSBPD, responding TSBPDSND latency=" << m_iPeerTsbPdDelay_ms);
+    }
+    else
+    {
+        HLOGC(mglog.Debug, log << "HSRSP/snd: HSv" << (hs_version == CUDT::HS_VERSION_UDT4 ? 4 : 5)
+            << " with peer TSBPD=" << (m_bPeerTsbPd ? "on" : "off") << " - NOT responding TSBPDSND");
+    }
+
+    if (m_bTLPktDrop)
+        srtdata[SRT_HS_FLAGS] |= SRT_OPT_TLPKTDROP;
 
 
     if (m_bRcvNakReport)
@@ -1650,7 +1648,7 @@ bool CUDT::createSrtHandshake(ref_t<CPacket> r_pkt, ref_t<CHandShake> r_hs,
         // If fillSrtHandshake_HSRSP catches the condition of m_ullRcvPeerStartTime == 0,
         // it will return size 0, which will mess up with further extension procedures;
         // PREVENT THIS HERE.
-        if (hs.m_iReqType == URQ_CONCLUSION && srths_cmd == SRT_CMD_HSRSP && m_ullRcvPeerStartTime == 0)
+        if (hs.m_iReqType == URQ_CONCLUSION && srths_cmd == SRT_CMD_HSRSP && srt::timing::is_zero(m_ullRcvPeerStartTime))
         {
             LOGC(mglog.Error, log << "createSrtHandshake: IPE (non-fatal): Attempting to craft HSRSP without received HSREQ. BLOCKING extensions.");
             hs.m_extension = false;
@@ -2080,19 +2078,7 @@ int CUDT::processSrtMsg_HSREQ(const uint32_t* srtdata, size_t len, uint32_t ts, 
      * This takes time zone, time drift into account.
      * Also includes current packet transit time (rtt/2)
      */
-#if 0                   //Debug PeerStartTime if not 1st HS packet
-    {
-        uint64_t oldPeerStartTime = m_ullRcvPeerStartTime;
-        m_ullRcvPeerStartTime = CTimer::getTime() - (uint64_t)((uint32_t)ts);
-        if (oldPeerStartTime) {
-            LOGC(mglog.Note, log << "rcvSrtMsg: 2nd PeerStartTime diff=" <<  
-                    (m_ullRcvPeerStartTime - oldPeerStartTime) << " usec");
-
-        }
-    }
-#else
     m_ullRcvPeerStartTime = CTimer::getTime() - (uint64_t)((uint32_t)ts);
-#endif
 
     // Prepare the initial runtime values of latency basing on the option values.
     // They are going to get the value fixed HERE.

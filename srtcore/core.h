@@ -677,7 +677,7 @@ private: // Receiving related data
     uint64_t m_ullLastWarningTime;               // Last time that a warning message is sent
 
     int32_t m_iPeerISN;                          // Initial Sequence Number of the peer side
-    uint64_t m_ullRcvPeerStartTime;
+    srt::timing::steady_clock::time_point       m_ullRcvPeerStartTime;
 
     uint32_t m_lSrtVersion;
     uint32_t m_lMinimumPeerSrtVersion;
@@ -755,7 +755,7 @@ private: // Trace
 
     struct CoreStats
     {
-        uint64_t startTime;                 // timestamp when the UDT entity is started
+        srt::timing::steady_clock::time_point startTime;                 // timestamp when the UDT entity is started
         int64_t sentTotal;                  // total number of sent data packets, including retransmissions
         int64_t recvTotal;                  // total number of received packets
         int sndLossTotal;                   // total number of lost packets (sender side)
@@ -777,7 +777,7 @@ private: // Trace
         uint64_t m_rcvBytesUndecryptTotal;
         int64_t m_sndDurationTotal;         // total real time for sending
 
-        uint64_t lastSampleTime;            // last performance sample time
+        srt::timing::steady_clock::time_point lastSampleTime;            // last performance sample time
         int64_t traceSent;                  // number of packets sent in the last trace interval
         int64_t traceRecv;                  // number of packets received in the last trace interval
         int traceSndLoss;                   // number of lost packets in the last trace interval (sender side)
