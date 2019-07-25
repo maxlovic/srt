@@ -235,9 +235,9 @@ int CUDTUnited::cleanup()
    m_bGCStatus = false;
 
    // Global destruction code
-   #ifdef _WIN32
-      WSACleanup();
-   #endif
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
    return 0;
 }
