@@ -69,12 +69,12 @@ modified by
 
 using namespace std;
 using namespace srt_logging;
+using namespace srt::timing;
 extern LogConfig srt_logger_config;
 
 
 CUDTSocket::CUDTSocket():
 m_Status(SRTS_INIT),
-m_TimeStamp(0),
 m_iIPversion(0),
 m_pSelfAddr(NULL),
 m_pPeerAddr(NULL),
@@ -330,7 +330,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
       {
          // last connection from the "peer" address has been broken
          ns->m_Status = SRTS_CLOSED;
-         ns->m_TimeStamp = CTimer::getTime();
+         ns->m_ClosureTimeStamp = steady_clock::now();
 
          CGuard::enterCS(ls->m_AcceptLock);
          ls->m_pQueuedSockets->erase(ns->m_SocketID);
@@ -486,7 +486,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
       SRTSOCKET id = ns->m_SocketID;
       ns->m_pUDT->close();
       ns->m_Status = SRTS_CLOSED;
-      ns->m_TimeStamp = CTimer::getTime();
+      ns->m_ClosureTimeStamp = srt::timing::steady_clock::now();
       // The mapped socket should be now unmapped to preserve the situation that
       // was in the original UDT code.
       // In SRT additionally the acceptAndRespond() function (it was called probably
@@ -912,15 +912,14 @@ int CUDTUnited::close(const SRTSOCKET u)
    HLOGC(mglog.Debug, log << s->m_pUDT->CONID() << " CLOSING (removing from listening, closing CUDT)");
 
    bool synch_close_snd = s->m_pUDT->m_bSynSending;
-   //bool synch_close_rcv = s->m_pUDT->m_bSynRecving;
 
    if (s->m_Status == SRTS_LISTENING)
    {
       if (s->m_pUDT->m_bBroken)
          return 0;
 
-      s->m_TimeStamp = CTimer::getTime();
-      s->m_pUDT->m_bBroken = true;
+      s->m_ClosureTimeStamp = steady_clock::now();
+      s->m_pUDT->m_bBroken  = true;
 
       // Change towards original UDT: 
       // Leave all the closing activities for garbageCollect to happen,
@@ -968,7 +967,7 @@ int CUDTUnited::close(const SRTSOCKET u)
        // in order to prevent other methods from accessing invalid address
        // a timer is started and the socket will be removed after approximately
        // 1 second
-       s->m_TimeStamp = CTimer::getTime();
+       s->m_ClosureTimeStamp = steady_clock::now();
 
        m_Sockets.erase(s->m_SocketID);
        m_ClosedSockets[s->m_SocketID] = s;
@@ -1110,13 +1109,12 @@ int CUDTUnited::getsockname(const SRTSOCKET u, sockaddr* name, int* namelen)
 int CUDTUnited::select(
    ud_set* readfds, ud_set* writefds, ud_set* exceptfds, const timeval* timeout)
 {
-   uint64_t entertime = CTimer::getTime();
+   steady_clock::time_point entertime = steady_clock::now();
 
-   uint64_t to;
-   if (!timeout)
-      to = 0xFFFFFFFFFFFFFFFFULL;
-   else
-      to = timeout->tv_sec * 1000000 + timeout->tv_usec;
+   const long timeo_us = timeout
+       ? timeout->tv_sec * 1000000 + timeout->tv_usec
+       : -1;
+   const steady_clock::duration timeo(from_microseconds(timeo_us));
 
    // initialize results
    int count = 0;
@@ -1215,7 +1213,7 @@ int CUDTUnited::select(
          break;
 
       CTimer::waitForEvent();
-   } while (to > CTimer::getTime() - entertime);
+   } while (timeo > steady_clock::now() - entertime);
 
    if (readfds)
       *readfds = rs;
@@ -1236,13 +1234,12 @@ int CUDTUnited::selectEx(
    vector<SRTSOCKET>* exceptfds,
    int64_t msTimeOut)
 {
-   uint64_t entertime = CTimer::getTime();
+    steady_clock::time_point entertime = steady_clock::now();
 
-   uint64_t to;
-   if (msTimeOut >= 0)
-      to = msTimeOut * 1000;
-   else
-      to = 0xFFFFFFFFFFFFFFFFULL;
+    const long timeo_us = msTimeOut >= 0
+        ? msTimeOut * 1000
+        : -1;
+    const steady_clock::duration timeo(from_microseconds(timeo_us));
 
    // initialize results
    int count = 0;
@@ -1299,7 +1296,7 @@ int CUDTUnited::selectEx(
          break;
 
       CTimer::waitForEvent();
-   } while (to > CTimer::getTime() - entertime);
+   } while (timeo > steady_clock::now() - entertime);
 
    return count;
 }
@@ -1450,20 +1447,16 @@ void CUDTUnited::checkBrokenSockets()
    {
        CUDTSocket* s = i->second;
 
-      // HLOGF(mglog.Debug, "checking EXISTING socket: %d\n", i->first);
       // check broken connection
       if (s->m_pUDT->m_bBroken)
       {
          if (s->m_Status == SRTS_LISTENING)
          {
-            uint64_t elapsed = CTimer::getTime() - s->m_TimeStamp;
+            const steady_clock::duration elapsed = steady_clock::now() - s->m_ClosureTimeStamp;
             // for a listening socket, it should wait an extra 3 seconds
             // in case a client is connecting
-            if (elapsed < 3000000) // XXX MAKE A SYMBOLIC CONSTANT HERE!
+            if (elapsed < 3s) // XXX MAKE A SYMBOLIC CONSTANT HERE!
             {
-               // HLOGF(mglog.Debug, "STILL KEEPING socket %d
-               // (listener, too early, w8 %fs)\n", i->first,
-               // double(elapsed)/1000000);
                continue;
             }
          }
@@ -1486,7 +1479,7 @@ void CUDTUnited::checkBrokenSockets()
 
          //close broken connections and start removal timer
          s->m_Status = SRTS_CLOSED;
-         s->m_TimeStamp = CTimer::getTime();
+         s->m_ClosureTimeStamp = steady_clock::now();
          tbc.push_back(i->first);
          m_ClosedSockets[i->first] = s;
 
@@ -1511,22 +1504,22 @@ void CUDTUnited::checkBrokenSockets()
       j != m_ClosedSockets.end(); ++ j)
    {
       // HLOGF(mglog.Debug, "checking CLOSED socket: %d\n", j->first);
-      if (j->second->m_pUDT->m_ullLingerExpiration > 0)
+      if (!is_zero(j->second->m_pUDT->m_LingerExpiration))
       {
          // asynchronous close:
          if ((!j->second->m_pUDT->m_pSndBuffer)
             || (0 == j->second->m_pUDT->m_pSndBuffer->getCurrBufSize())
-            || (j->second->m_pUDT->m_ullLingerExpiration <= CTimer::getTime()))
+            || (j->second->m_pUDT->m_LingerExpiration <= srt::timing::steady_clock::now()))
          {
-            j->second->m_pUDT->m_ullLingerExpiration = 0;
+            j->second->m_pUDT->m_LingerExpiration = steady_clock::now();
             j->second->m_pUDT->m_bClosing = true;
-            j->second->m_TimeStamp = CTimer::getTime();
+            j->second->m_ClosureTimeStamp = srt::timing::steady_clock::now();
          }
       }
 
       // timeout 1 second to destroy a socket AND it has been removed from
       // RcvUList
-      if ((CTimer::getTime() - j->second->m_TimeStamp > 1000000)
+      if ((srt::timing::steady_clock::now() - j->second->m_ClosureTimeStamp > 1s)
          && ((!j->second->m_pUDT->m_pRNode)
             || !j->second->m_pUDT->m_pRNode->m_bOnList))
       {
@@ -1566,7 +1559,7 @@ void CUDTUnited::removeSocket(const SRTSOCKET u)
       {
          m_Sockets[*q]->m_pUDT->m_bBroken = true;
          m_Sockets[*q]->m_pUDT->close();
-         m_Sockets[*q]->m_TimeStamp = CTimer::getTime();
+         m_Sockets[*q]->m_ClosureTimeStamp = srt::timing::steady_clock::now();
          m_Sockets[*q]->m_Status = SRTS_CLOSED;
          m_ClosedSockets[*q] = m_Sockets[*q];
          m_Sockets.erase(*q);
@@ -1853,7 +1846,7 @@ void* CUDTUnited::garbageCollect(void* p)
       i->second->m_pUDT->m_bBroken = true;
       i->second->m_pUDT->close();
       i->second->m_Status = SRTS_CLOSED;
-      i->second->m_TimeStamp = CTimer::getTime();
+      i->second->m_ClosureTimeStamp = steady_clock::now();
       self->m_ClosedSockets[i->first] = i->second;
 
       // remove from listener's queue
@@ -1876,7 +1869,7 @@ void* CUDTUnited::garbageCollect(void* p)
    for (map<SRTSOCKET, CUDTSocket*>::iterator j = self->m_ClosedSockets.begin();
       j != self->m_ClosedSockets.end(); ++ j)
    {
-      j->second->m_TimeStamp = 0;
+      j->second->m_ClosureTimeStamp = steady_clock::time_point();
    }
    CGuard::leaveCS(self->m_ControlLock);
 

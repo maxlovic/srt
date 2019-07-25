@@ -79,6 +79,7 @@ modified by
 #endif
 
 using namespace std;
+using namespace srt::timing;
 
 namespace srt_logging
 {
@@ -196,8 +197,7 @@ void CUDT::construct()
     m_bShutdown = false;
     m_bBroken = false;
     m_bPeerHealth = true;
-    m_ullLingerExpiration = 0;
-    m_llLastReqTime = 0;
+    m_LastReqTime = 0;
 
     m_lSrtVersion = SRT_DEF_VERSION;
     m_lPeerSrtVersion = 0; // not defined until connected.
@@ -1262,7 +1262,7 @@ void CUDT::clearData()
 
 
    m_RdvState = CHandShake::RDV_INVALID;
-   m_ullRcvPeerStartTime = srt::timing::steady_clock::time_point();
+   m_RcvPeerStartTime = srt::timing::steady_clock::time_point();
 }
 
 void CUDT::open()
@@ -1282,7 +1282,7 @@ void CUDT::open()
    if (m_pRNode == NULL)
       m_pRNode = new CRNode;
    m_pRNode->m_pUDT = this;
-   m_pRNode->m_llTimeStamp_tk = 1;
+   m_pRNode->m_TimeStamp = 1;
    m_pRNode->m_pPrev = m_pRNode->m_pNext = NULL;
    m_pRNode->m_bOnList = false;
 
@@ -1426,12 +1426,12 @@ size_t CUDT::fillSrtHandshake_HSREQ(uint32_t* srtdata, size_t /* srtlen - unused
 
 size_t CUDT::fillSrtHandshake_HSRSP(uint32_t* srtdata, size_t /* srtlen - unused */, int hs_version)
 {
-    // Setting m_ullRcvPeerStartTime is done ine processSrtMsg_HSREQ(), so
+    // Setting m_RcvPeerStartTime is done ine processSrtMsg_HSREQ(), so
     // this condition will be skipped only if this function is called without
     // getting first received HSREQ. Doesn't look possible in both HSv4 and HSv5.
-    if (srt::timing::is_zero(m_ullRcvPeerStartTime))
+    if (srt::timing::is_zero(m_RcvPeerStartTime))
     {
-        LOGC(mglog.Fatal, log << "IPE: fillSrtHandshake_HSRSP: m_ullRcvPeerStartTime NOT SET!");
+        LOGC(mglog.Fatal, log << "IPE: fillSrtHandshake_HSRSP: m_RcvPeerStartTime NOT SET!");
         return 0;
     }
 
@@ -1645,10 +1645,10 @@ bool CUDT::createSrtHandshake(ref_t<CPacket> r_pkt, ref_t<CHandShake> r_hs,
     if (hs.m_iVersion > HS_VERSION_UDT4)
     {
         // Check if there was a failure to receie HSREQ before trying to craft HSRSP.
-        // If fillSrtHandshake_HSRSP catches the condition of m_ullRcvPeerStartTime == 0,
+        // If fillSrtHandshake_HSRSP catches the condition of m_RcvPeerStartTime == 0,
         // it will return size 0, which will mess up with further extension procedures;
         // PREVENT THIS HERE.
-        if (hs.m_iReqType == URQ_CONCLUSION && srths_cmd == SRT_CMD_HSRSP && srt::timing::is_zero(m_ullRcvPeerStartTime))
+        if (hs.m_iReqType == URQ_CONCLUSION && srths_cmd == SRT_CMD_HSRSP && srt::timing::is_zero(m_RcvPeerStartTime))
         {
             LOGC(mglog.Error, log << "createSrtHandshake: IPE (non-fatal): Attempting to craft HSRSP without received HSREQ. BLOCKING extensions.");
             hs.m_extension = false;
@@ -2078,7 +2078,7 @@ int CUDT::processSrtMsg_HSREQ(const uint32_t* srtdata, size_t len, uint32_t ts, 
      * This takes time zone, time drift into account.
      * Also includes current packet transit time (rtt/2)
      */
-    m_ullRcvPeerStartTime = CTimer::getTime() - (uint64_t)((uint32_t)ts);
+    m_RcvPeerStartTime = steady_clock::now() - from_microseconds(ts);
 
     // Prepare the initial runtime values of latency basing on the option values.
     // They are going to get the value fixed HERE.
@@ -2279,22 +2279,11 @@ int CUDT::processSrtMsg_HSRSP(const uint32_t* srtdata, size_t len, uint32_t ts, 
      * This takes time zone, time drift into account.
      * Also includes current packet transit time (rtt/2)
      */
-#if 0                   //Debug PeerStartTime if not 1st HS packet
-    {
-        uint64_t oldPeerStartTime = m_ullRcvPeerStartTime;
-        m_ullRcvPeerStartTime = CTimer::getTime() - (uint64_t)((uint32_t)ts);
-        if (oldPeerStartTime) {
-            LOGC(mglog.Note, log << "rcvSrtMsg: 2nd PeerStartTime diff=" <<  
-                    (m_ullRcvPeerStartTime - oldPeerStartTime) << " usec");
+    m_RcvPeerStartTime = steady_clock::now() - from_microseconds(ts);
 
-        }
-    }
-#else
-    m_ullRcvPeerStartTime = CTimer::getTime() - (uint64_t)((uint32_t)ts);
-#endif
 
     m_lPeerSrtVersion = srtdata[SRT_HS_VERSION];
-    uint32_t peer_srt_options = srtdata[SRT_HS_FLAGS];
+    const uint32_t peer_srt_options = srtdata[SRT_HS_FLAGS];
 
     HLOGF(mglog.Debug, "HSRSP/rcv: Version: %s Flags: SND:%08X (%s)",
             SrtVersionString(m_lPeerSrtVersion).c_str(),
@@ -2881,7 +2870,7 @@ void CUDT::startConnect(const sockaddr* serv_addr, int32_t forced_isn)
      * Connect response will be ignored and connecting will wait until timeout.
      * Maybe m_ConnectionLock handling problem? Not used in CUDT::connect(const CPacket& response)
      */
-    m_llLastReqTime = now;
+    m_LastReqTime = now;
     m_bConnecting = true;
     m_pSndQueue->sendto(serv_addr, reqpkt);
 
@@ -2915,14 +2904,14 @@ void CUDT::startConnect(const sockaddr* serv_addr, int32_t forced_isn)
 
     while (!m_bClosing)
     {
-        int64_t tdiff = CTimer::getTime() - m_llLastReqTime;
+        int64_t tdiff = CTimer::getTime() - m_LastReqTime;
         // avoid sending too many requests, at most 1 request per 250ms
 
         // SHORT VERSION: 
         // The immediate first run of this loop WILL SKIP THIS PART, so
         // the processing really begins AFTER THIS CONDITION.
         //
-        // Note that some procedures inside may set m_llLastReqTime to 0,
+        // Note that some procedures inside may set m_LastReqTime to 0,
         // which will result of this condition to trigger immediately in
         // the next iteration.
         if (tdiff > 250000)
@@ -2941,7 +2930,7 @@ void CUDT::startConnect(const sockaddr* serv_addr, int32_t forced_isn)
             }
 #endif
 
-            m_llLastReqTime = now;
+            m_LastReqTime = now;
             reqpkt.m_iTimeStamp = int32_t(now - m_stats.startTime);
             m_pSndQueue->sendto(serv_addr, reqpkt);
         }
@@ -3005,7 +2994,7 @@ void CUDT::startConnect(const sockaddr* serv_addr, int32_t forced_isn)
 
             // new request/response should be sent out immediately on receving a response
             HLOGC(mglog.Debug, log << "startConnect: SYNC CONNECTION STATUS:" << ConnectStatusStr(cst) << ", REQ-TIME: LOW.");
-            m_llLastReqTime = 0;
+            m_LastReqTime = 0;
 
             // Now serialize the handshake again to the existing buffer so that it's
             // then sent later in this loop.
@@ -3115,7 +3104,7 @@ EConnectStatus CUDT::processAsyncConnectResponse(const CPacket& pkt) ATR_NOEXCEP
 
     HLOGC(mglog.Debug, log << CONID() << "processAsyncConnectResponse: response processing result: "
         << ConnectStatusStr(cst) << "REQ-TIME LOW to enforce immediate response");
-    m_llLastReqTime = 0;
+    m_LastReqTime = 0;
 
     return cst;
 }
@@ -3136,7 +3125,7 @@ bool CUDT::processAsyncConnectRequest(EReadStatus rst, EConnectStatus cst, const
     request.m_iTimeStamp = int(now - m_stats.startTime);
 
     HLOGC(mglog.Debug, log << "processAsyncConnectRequest: REQ-TIME: HIGH (" << now << "). Should prevent too quick responses.");
-    m_llLastReqTime = now;
+    m_LastReqTime = now;
     // ID = 0, connection request
     request.m_iID = !m_bRendezvous ? 0 : m_ConnRes.m_iID;
 
@@ -3193,7 +3182,7 @@ bool CUDT::processAsyncConnectRequest(EReadStatus rst, EConnectStatus cst, const
     }
 
     HLOGC(mglog.Debug, log << "processAsyncConnectRequest: sending request packet, setting REQ-TIME HIGH.");
-    m_llLastReqTime = CTimer::getTime();
+    m_LastReqTime = CTimer::getTime();
     m_pSndQueue->sendto(serv_addr, request);
     return status;
 }
@@ -3317,7 +3306,7 @@ EConnectStatus CUDT::processRendezvous(ref_t<CPacket> reqpkt, const CPacket& res
         {
             // We have JUST RECEIVED packet in this session (not that this is called as periodic update).
             // Sanity check
-            m_llLastReqTime = 0;
+            m_LastReqTime = 0;
             if (response.getLength() == size_t(-1))
             {
                 LOGC(mglog.Fatal, log << "IPE: rst=RST_OK, but the packet has set -1 length - REJECTING (REQ-TIME: LOW)");
@@ -3409,7 +3398,7 @@ EConnectStatus CUDT::processRendezvous(ref_t<CPacket> reqpkt, const CPacket& res
         if (!createSrtHandshake(reqpkt, Ref(m_ConnReq), SRT_CMD_HSRSP, SRT_CMD_KMRSP, kmdata, kmdatasize))
         {
             HLOGC(mglog.Debug, log << "processRendezvous: rejecting due to problems in createSrtHandshake. REQ-TIME: LOW");
-            m_llLastReqTime = 0;
+            m_LastReqTime = 0;
             return CONN_REJECT;
         }
 
@@ -3502,7 +3491,7 @@ EConnectStatus CUDT::processRendezvous(ref_t<CPacket> reqpkt, const CPacket& res
     if ( !createSrtHandshake(reqpkt, Ref(m_ConnReq), SRT_CMD_HSREQ, SRT_CMD_KMREQ, 0, 0))
     {
         LOGC(mglog.Error, log << "createSrtHandshake failed (IPE?), connection rejected. REQ-TIME: LOW");
-        m_llLastReqTime = 0;
+        m_LastReqTime = 0;
         return CONN_REJECT;
     }
 
@@ -3523,7 +3512,7 @@ EConnectStatus CUDT::processRendezvous(ref_t<CPacket> reqpkt, const CPacket& res
         // AGREEMENT is missed, it may have kinda initial tearing.
 
         const uint64_t now = CTimer::getTime();
-        m_llLastReqTime = now;
+        m_LastReqTime = now;
         rpkt.m_iTimeStamp = int32_t(now - m_stats.startTime);
         HLOGC(mglog.Debug, log << "processRendezvous: rsp=AGREEMENT, reporting ACCEPT and sending just this one, REQ-TIME HIGH (" << now << ").");
 
@@ -3537,7 +3526,7 @@ EConnectStatus CUDT::processRendezvous(ref_t<CPacket> reqpkt, const CPacket& res
         // the request time must be updated so that the next handshake can be sent out immediately
         HLOGC(mglog.Debug, log << "processRendezvous: rsp=" << RequestTypeStr(m_ConnReq.m_iReqType)
                 << " REQ-TIME: LOW to send immediately, consider yourself conencted");
-        m_llLastReqTime = 0;
+        m_LastReqTime = 0;
     }
     else
     {
@@ -3688,7 +3677,7 @@ EConnectStatus CUDT::processConnectResponse(const CPacket& response, CUDTExcepti
 
            m_ConnReq.m_iReqType = URQ_CONCLUSION;
            // the request time must be updated so that the next handshake can be sent out immediately.
-           m_llLastReqTime = 0;
+           m_LastReqTime = 0;
            return CONN_CONTINUE;
        }
        else
@@ -3741,7 +3730,7 @@ EConnectStatus CUDT::processConnectResponse(const CPacket& response, CUDTExcepti
              bidirectional = true;
              hsd = HSD_INITIATOR;
          }
-         m_llLastReqTime = 0;
+         m_LastReqTime = 0;
          createCrypter(hsd, bidirectional);
 
          // NOTE: This setup sets URQ_CONCLUSION and appropriate data in the handshake structure.
@@ -3781,7 +3770,7 @@ void CUDT::applyResponseSettings()
 EConnectStatus CUDT::postConnect(const CPacket& response, bool rendezvous, CUDTException* eout, bool synchro)
 {
     if (m_ConnRes.m_iVersion < HS_VERSION_SRT1 )
-        m_ullRcvPeerStartTime = 0; // will be set correctly in SRT HS.
+        m_RcvPeerStartTime = 0; // will be set correctly in SRT HS.
 
     // This procedure isn't being executed in rendezvous because
     // in rendezvous it's completed before calling this function.
@@ -4481,7 +4470,7 @@ void CUDT::acceptAndRespond(const sockaddr* peer, CHandShake* hs, const CPacket&
 
    CGuard cg(m_ConnectionLock);
 
-   m_ullRcvPeerStartTime = 0; // will be set correctly at SRT HS
+   m_RcvPeerStartTime = 0; // will be set correctly at SRT HS
 
    // Uses the smaller MSS between the peers
    if (hs->m_iMSS > m_iMSS)
@@ -4791,7 +4780,7 @@ void CUDT::checkSndTimers(Whether2RegenKm regen)
 void CUDT::addressAndSend(CPacket& pkt)
 {
     pkt.m_iID = m_PeerID;
-    pkt.m_iTimeStamp = int(CTimer::getTime() - m_stats.startTime);
+    pkt.m_iTimeStamp = to_microseconds(steady_clock::now() - m_stats.startTime);
 
     m_pSndQueue->sendto(m_pPeerAddr, pkt);
 }
@@ -4810,24 +4799,24 @@ bool CUDT::close()
 
    if (m_Linger.l_onoff != 0)
    {
-      uint64_t entertime = CTimer::getTime();
+      const steady_clock::time_point entertime = steady_clock::now();
 
       HLOGC(mglog.Debug, log << CONID() << " ... (linger)");
       while (!m_bBroken && m_bConnected && (m_pSndBuffer->getCurrBufSize() > 0)
-              && (CTimer::getTime() - entertime < m_Linger.l_linger * uint64_t(1000000)))
+              && (steady_clock::now() - entertime < from_seconds(m_Linger.l_linger)))
       {
          // linger has been checked by previous close() call and has expired
-         if (m_ullLingerExpiration >= entertime)
+         if (m_LingerExpiration >= entertime)
             break;
 
          if (!m_bSynSending)
          {
             // if this socket enables asynchronous sending, return immediately and let GC to close it later
-            if (m_ullLingerExpiration == 0)
-               m_ullLingerExpiration = entertime + m_Linger.l_linger * uint64_t(1000000);
+            if (is_zero(m_LingerExpiration))
+                m_LingerExpiration = entertime + from_seconds(m_Linger.l_linger);
 
             HLOGC(mglog.Debug, log << "CUDT::close: linger-nonblocking, setting expire time T="
-                    << FormatTime(m_ullLingerExpiration));
+                    << FormatTime(m_LingerExpiration));
 
             return false;
          }
@@ -4937,7 +4926,7 @@ bool CUDT::close()
    m_lSrtVersion = SRT_DEF_VERSION;
    m_lPeerSrtVersion = SRT_VERSION_UNK;
    m_lMinimumPeerSrtVersion = SRT_VERSION_MAJ1;
-   m_ullRcvPeerStartTime = 0;
+   m_RcvPeerStartTime = steady_clock::time_point();
 
    m_bOpened = false;
 
@@ -7196,7 +7185,7 @@ void CUDT::updateSrtRcvSettings()
     {
         /* We are TsbPd receiver */
         CGuard::enterCS(m_RecvLock);
-        m_pRcvBuffer->setRcvTsbPdMode(m_ullRcvPeerStartTime, m_iTsbPdDelay_ms * 1000);
+        m_pRcvBuffer->setRcvTsbPdMode(m_RcvPeerStartTime, m_iTsbPdDelay_ms * 1000);
         CGuard::leaveCS(m_RecvLock);
 
         HLOGF(mglog.Debug,  "AFTER HS: Set Rcv TsbPd mode: delay=%u.%03u secs",

@@ -146,10 +146,10 @@ private:
 
 struct CSNode
 {
+    using steady_clock = srt::timing::steady_clock;
    CUDT* m_pUDT;		// Pointer to the instance of CUDT socket
 
-   srt::timing::time_point<srt::timing::steady_clock>
-                m_timeStamp;
+   steady_clock::time_point m_timeStamp;
 
    int m_iHeapLoc;		// location on the heap, -1 means not on the heap
 };
@@ -220,8 +220,9 @@ private:
 
 struct CRNode
 {
+   using steady_clock = srt::timing::steady_clock;
    CUDT* m_pUDT;                // Pointer to the instance of CUDT socket
-   uint64_t m_llTimeStamp_tk;      // Time Stamp
+   steady_clock::time_point m_TimeStamp;      // Time Stamp
 
    CRNode* m_pPrev;             // previous link
    CRNode* m_pNext;             // next link
@@ -316,7 +317,10 @@ public:
    ~CRendezvousQueue();
 
 public:
-   void insert(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, uint64_t ttl);
+
+   using steady_clock = srt::timing::steady_clock;
+
+   void insert(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, const steady_clock::time_point &ttl);
 
    // The should_lock parameter is given here to state as to whether
    // the lock should be applied here. If called from some internals
@@ -328,13 +332,15 @@ public:
    void updateConnStatus(EReadStatus rst, EConnectStatus, const CPacket& response);
 
 private:
+
+
    struct CRL
    {
       SRTSOCKET m_iID;			// UDT socket ID (self)
       CUDT* m_pUDT;			// UDT instance
       int m_iIPversion;                 // IP version
       sockaddr* m_pPeerAddr;		// UDT sonnection peer address
-      uint64_t m_ullTTL;			// the time that this request expires
+      steady_clock::time_point m_TTL;			// the time that this request expires
    };
    std::list<CRL> m_lRendezvousID;      // The sockets currently in rendezvous mode
 
@@ -430,6 +436,7 @@ class CRcvQueue
 {
 friend class CUDT;
 friend class CUDTUnited;
+using steady_clock = srt::timing::steady_clock;
 
 public:
    CRcvQueue();
@@ -486,10 +493,11 @@ private:
    pthread_cond_t m_ExitCond;
 
 private:
+
    int setListener(CUDT* u);
    void removeListener(const CUDT* u);
 
-   void registerConnector(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, uint64_t ttl);
+   void registerConnector(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, steady_clock::time_point ttl);
    void removeConnector(const SRTSOCKET& id, bool should_lock = true);
 
    void setNewEntry(CUDT* u);

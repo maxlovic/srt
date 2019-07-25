@@ -64,6 +64,7 @@ modified by
 #include "queue.h"
 
 using namespace std;
+using namespace srt::timing;
 using namespace srt_logging;
 
 CUnitQueue::CUnitQueue():
@@ -642,7 +643,7 @@ CRcvUList::~CRcvUList()
 void CRcvUList::insert(const CUDT* u)
 {
    CRNode* n = u->m_pRNode;
-   CTimer::rdtsc(n->m_llTimeStamp_tk);
+   n->m_TimeStamp = steady_clock::now();
 
    if (NULL == m_pUList)
    {
@@ -698,7 +699,7 @@ void CRcvUList::update(const CUDT* u)
    if (!n->m_bOnList)
       return;
 
-   CTimer::rdtsc(n->m_llTimeStamp_tk);
+   n->m_TimeStamp = steady_clock::now();
 
    // if n is the last node, do not need to change
    if (NULL == n->m_pNext)
@@ -829,7 +830,7 @@ CRendezvousQueue::~CRendezvousQueue()
    m_lRendezvousID.clear();
 }
 
-void CRendezvousQueue::insert(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, uint64_t ttl)
+void CRendezvousQueue::insert(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, const steady_clock::time_point& ttl)
 {
    CGuard vg(m_RIDVectorLock);
 
@@ -839,7 +840,7 @@ void CRendezvousQueue::insert(const SRTSOCKET& id, CUDT* u, int ipv, const socka
    r.m_iIPversion = ipv;
    r.m_pPeerAddr = (AF_INET == ipv) ? (sockaddr*)new sockaddr_in : (sockaddr*)new sockaddr_in6;
    memcpy(r.m_pPeerAddr, addr, (AF_INET == ipv) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6));
-   r.m_ullTTL = ttl;
+   r.m_TTL = ttl;
 
    m_lRendezvousID.push_back(r);
 }
@@ -911,9 +912,9 @@ void CRendezvousQueue::updateConnStatus(EReadStatus rst, EConnectStatus cst, con
         // (most expectably CONN_CONTINUE or CONN_RENDEZVOUS, which means that a packet has
         // just arrived in this iteration), do the update immetiately (in SRT this also
         // involves additional incoming data interpretation, which wasn't the case in UDT).
-        uint64_t then = i->m_pUDT->m_llLastReqTime;
-        uint64_t now = CTimer::getTime();
-        bool nowstime = true;
+        const steady_clock::time_point then = i->m_pUDT->m_LastReqTime;
+        const steady_clock::time_point now  = steady_clock::now();
+        bool now_is_time = true;
 
         // Use "slow" cyclic responding in case when
         // - RST_AGAIN (no packet was received for whichever socket)
@@ -922,9 +923,9 @@ void CRendezvousQueue::updateConnStatus(EReadStatus rst, EConnectStatus cst, con
         {
             // If no packet has been received from the peer,
             // avoid sending too many requests, at most 1 request per 250ms
-            nowstime = (now - then) > 250000;
+            now_is_time = (now - then) > 250ms;
             HLOGC(mglog.Debug, log << "RID:%" << i->m_iID << " then=" << then << " now=" << now << " passed=" << (now-then)
-                    <<  "<=> 250000 -- now's " << (nowstime ? "" : "NOT ") << "the time");
+                    <<  "<=> 250000 -- now's " << (now_is_time ? "" : "NOT ") << "the time");
         }
         else
         {
@@ -934,7 +935,7 @@ void CRendezvousQueue::updateConnStatus(EReadStatus rst, EConnectStatus cst, con
 #if ENABLE_HEAVY_LOGGING
         ++debug_nrun;
 #endif
-        if (nowstime)
+        if (now_is_time)
         {
             // XXX This looks like a loop that rolls in infinity without any sleeps
             // inside and makes it once per about 50 calls send a hs conclusion
@@ -946,10 +947,10 @@ void CRendezvousQueue::updateConnStatus(EReadStatus rst, EConnectStatus cst, con
             //
             // Maybe the time should be simply checked once and the whole loop not
             // done when "it's not the time"?
-            if (CTimer::getTime() >= i->m_ullTTL)
+            if (steady_clock::now() >= i->m_TTL)
             {
                 HLOGC(mglog.Debug, log << "RendezvousQueue: EXPIRED ("
-                        << (i->m_ullTTL ? "enforced on FAILURE" : "passed TTL")
+                        << (i->m_TTL ? "enforced on FAILURE" : "passed TTL")
                         << ". removing from queue");
                 // connection timer expired, acknowledge app via epoll
                 i->m_pUDT->m_bConnecting = false;
@@ -994,7 +995,8 @@ void CRendezvousQueue::updateConnStatus(EReadStatus rst, EConnectStatus cst, con
                 {
                     LOGC(mglog.Error, log << "RendezvousQueue: processAsyncConnectRequest FAILED. Setting TTL as EXPIRED.");
                     i->m_pUDT->sendCtrl(UMSG_SHUTDOWN);
-                    i->m_ullTTL = 0; // Make it expire right now, will be picked up at the next iteration
+                    // Make it expire right now, will be picked up at the next iteration
+                    i->m_TTL = steady_clock::now();
 #if ENABLE_HEAVY_LOGGING
                     ++debug_nfail;
 #endif
@@ -1160,12 +1162,10 @@ void* CRcvQueue::worker(void* param)
 
 
        // take care of the timing event for all UDT sockets
-       uint64_t currtime_tk;
-       CTimer::rdtsc(currtime_tk);
+       steady_clock::time_point curtime_minus_100ms = steady_clock::now() - 100ms;
 
        CRNode* ul = self->m_pRcvUList->m_pUList;
-       const uint64_t curtime_tk_minus_100ms = currtime_tk - 100000 * CTimer::getCPUFrequency();    // minus 100 ms
-       while ((NULL != ul) && (ul->m_llTimeStamp_tk < curtime_tk_minus_100ms))
+       while ((NULL != ul) && (ul->m_TimeStamp < curtime_minus_100ms))
        {
            CUDT* u = ul->m_pUDT;
 
@@ -1581,7 +1581,8 @@ void CRcvQueue::removeListener(const CUDT* u)
       m_pListener = NULL;
 }
 
-void CRcvQueue::registerConnector(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, uint64_t ttl)
+void CRcvQueue::registerConnector(
+    const SRTSOCKET &id, CUDT *u, int ipv, const sockaddr *addr, steady_clock::time_point ttl)
 {
    HLOGC(mglog.Debug, log << "registerConnector: adding %" << id << " addr=" << SockaddrToString(addr) << " TTL=" << ttl);
    m_pRendezvousQueue->insert(id, u, ipv, addr, ttl);

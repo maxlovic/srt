@@ -69,6 +69,12 @@ namespace srt
         }
 
 
+        inline steady_clock::duration from_seconds(long t_s)
+        {
+            return std::chrono::seconds(t_s);
+        }
+
+
         template<
             class Clock,
             class Duration = typename Clock::duration

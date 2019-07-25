@@ -597,13 +597,12 @@ private:
     int m_iDeliveryRate;                         // Packet arrival rate at the receiver side
     int m_iByteDeliveryRate;                     // Byte arrival rate at the receiver side
 
-    uint64_t m_ullLingerExpiration;              // Linger expiration time (for GC to close a socket with data in sending buffer)
 
     CHandShake m_ConnReq;                        // connection request
     CHandShake m_ConnRes;                        // connection response
     CHandShake::RendezvousState m_RdvState;      // HSv5 rendezvous state
     HandshakeSide m_SrtHsSide;                   // HSv5 rendezvous handshake side resolved from cookie contest (DRAW if not yet resolved)
-    int64_t m_llLastReqTime;                     // last time when a connection request is sent
+
 
 private: // Sending related data
     CSndBuffer* m_pSndBuffer;                    // Sender buffer
@@ -620,24 +619,30 @@ private: // Sending related data
     volatile double m_dCongestionWindow;         // congestion window size
 
 private:    // Timers
-    //uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for Timer, ticks per microsecond
-    /*volatile*/ CSndUList::time_point m_nextACKTime;             // Next ACK time, in CPU clock cycles, same below
-    /*volatile*/ CSndUList::time_point m_nextNAKTime;             // Next NAK time
 
-    /*volatile*/ srt::timing::steady_clock::duration m_SYNInterval;    // SYN interval
-    /*volatile*/ srt::timing::steady_clock::duration m_ACKInterval;    // ACK interval
-    /*volatile*/ srt::timing::steady_clock::duration m_NAKInterval;    // NAK interval
-    /*volatile*/ CSndUList::time_point m_lastRspTime;    // time stamp of last response from the peer
-    /*volatile*/ CSndUList::time_point m_lastRspAckTime; // time stamp of last ACK from the peer
-    /*volatile*/ CSndUList::time_point m_lastSndTime;    // time stamp of last data/ctrl sent (in system ticks)
-    CSndUList::time_point m_lastAckTime;                // Timestamp of last ACK
-    srt::timing::steady_clock::duration m_minNakInterval;               // NAK timeout lower bound; too small value can cause unnecessary retransmission
-    srt::timing::steady_clock::duration m_minExpInterval;               // timeout lower bound threshold: too small timeout can cause problem
+    using steady_clock = srt::timing::steady_clock;
+
+    //uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for Timer, ticks per microsecond
+    /*volatile*/ steady_clock::time_point m_nextACKTime;             // Next ACK time, in CPU clock cycles, same below
+    /*volatile*/ steady_clock::time_point m_nextNAKTime;             // Next NAK time
+
+    /*volatile*/ steady_clock::duration m_SYNInterval;    // SYN interval
+    /*volatile*/ steady_clock::duration m_ACKInterval;    // ACK interval
+    /*volatile*/ steady_clock::duration m_NAKInterval;    // NAK interval
+    /*volatile*/ steady_clock::time_point m_lastRspTime;    // time stamp of last response from the peer
+    /*volatile*/ steady_clock::time_point m_lastRspAckTime; // time stamp of last ACK from the peer
+    /*volatile*/ steady_clock::time_point m_lastSndTime;    // time stamp of last data/ctrl sent (in system ticks)
+    steady_clock::time_point m_LastReqTime;                     // last time when a connection request is sent
+    steady_clock::time_point       m_RcvPeerStartTime;
+    steady_clock::time_point m_LingerExpiration;              // Linger expiration time (for GC to close a socket with data in sending buffer)
+    steady_clock::time_point m_lastAckTime;                // Timestamp of last ACK
+    steady_clock::duration m_minNakInterval;               // NAK timeout lower bound; too small value can cause unnecessary retransmission
+    steady_clock::duration m_minExpInterval;               // timeout lower bound threshold: too small timeout can cause problem
 
     int m_iPktCount;                          // packet counter for ACK
     int m_iLightACKCount;                     // light ACK counter
 
-    std::optional<CSndUList::time_point> m_nextSendTime;     // scheduled time of next packet sending
+    std::optional<steady_clock::time_point> m_nextSendTime;     // scheduled time of next packet sending
 
     volatile int32_t m_iSndLastFullAck;          // Last full ACK received
     volatile int32_t m_iSndLastAck;              // Last ACK received
@@ -677,7 +682,7 @@ private: // Receiving related data
     uint64_t m_ullLastWarningTime;               // Last time that a warning message is sent
 
     int32_t m_iPeerISN;                          // Initial Sequence Number of the peer side
-    srt::timing::steady_clock::time_point       m_ullRcvPeerStartTime;
+    
 
     uint32_t m_lSrtVersion;
     uint32_t m_lMinimumPeerSrtVersion;
