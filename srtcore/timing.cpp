@@ -182,6 +182,16 @@ srt::timing::steady_clock::duration srt::timing::from_microseconds(long t_us)
 
 
 #ifdef USE_STL_CHRONO
+
+
+srt::timing::Timer::Timer()
+{}
+
+
+srt::timing::Timer::~Timer()
+{}
+
+
 void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
 {
     // TODO: Add busy waiting
@@ -203,6 +213,21 @@ void srt::timing::Timer::wake_up()
 }
 
 #else
+
+
+srt::timing::Timer::Timer()
+{
+    pthread_mutex_init(&m_tick_lock, NULL);
+    pthread_cond_init(&m_tick_cond, NULL);
+}
+
+
+~srt::timing::Timer::Timer()
+{
+    pthread_mutex_destroy(&m_tick_lock, NULL);
+    pthread_cond_destroy (&m_tick_cond, NULL);
+}
+
 
 void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
 {

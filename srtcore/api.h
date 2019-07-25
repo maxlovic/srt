@@ -233,9 +233,9 @@ private:
    CCache<CInfoBlock>* m_pCache;			// UDT network information cache
 
 private:
+
+    srt::timing::Timer  m_checkState;
    volatile bool m_bClosing;
-   pthread_mutex_t m_GCStopLock;
-   pthread_cond_t m_GCStopCond;
 
    pthread_mutex_t m_InitLock;
    int m_iInstanceCount;				// number of startup() called by application

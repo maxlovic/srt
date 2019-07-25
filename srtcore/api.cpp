@@ -131,8 +131,6 @@ m_mMultiplexer(),
 m_MultiplexerLock(),
 m_pCache(NULL),
 m_bClosing(false),
-m_GCStopLock(),
-m_GCStopCond(),
 m_InitLock(),
 m_iInstanceCount(0),
 m_bGCStatus(false),
@@ -195,24 +193,20 @@ int CUDTUnited::startup()
    if (m_iInstanceCount++ > 0)
       return 0;
 
-   // Global initialization code
-   #ifdef _WIN32
-      WORD wVersionRequested;
-      WSADATA wsaData;
-      wVersionRequested = MAKEWORD(2, 2);
+// Global initialization code
+#ifdef _WIN32
+    WORD wVersionRequested;
+    WSADATA wsaData;
+    wVersionRequested = MAKEWORD(2, 2);
 
-      if (0 != WSAStartup(wVersionRequested, &wsaData))
-         throw CUDTException(MJ_SETUP, MN_NONE,  WSAGetLastError());
-   #endif
-
-   //init CTimer::EventLock
+    if (0 != WSAStartup(wVersionRequested, &wsaData))
+        throw CUDTException(MJ_SETUP, MN_NONE,  WSAGetLastError());
+#endif
 
    if (m_bGCStatus)
       return true;
 
    m_bClosing = false;
-   pthread_mutex_init(&m_GCStopLock, NULL);
-   pthread_cond_init(&m_GCStopCond, NULL);
 
    {
        ThreadName tn("SRT:GC");
@@ -231,25 +225,12 @@ int CUDTUnited::cleanup()
    if (--m_iInstanceCount > 0)
       return 0;
 
-   //destroy CTimer::EventLock
-
    if (!m_bGCStatus)
       return 0;
 
    m_bClosing = true;
-   pthread_cond_signal(&m_GCStopCond);
+   m_checkState.wake_up();
    pthread_join(m_GCThread, NULL);
-   
-   // XXX There's some weird bug here causing this
-   // to hangup on Windows. This might be either something
-   // bigger, or some problem in pthread-win32. As this is
-   // the application cleanup section, this can be temporarily
-   // tolerated with simply exit the application without cleanup,
-   // counting on that the system will take care of it anyway.
-#ifndef _WIN32
-   pthread_mutex_destroy(&m_GCStopLock);
-   pthread_cond_destroy(&m_GCStopCond);
-#endif
 
    m_bGCStatus = false;
 
@@ -1854,26 +1835,13 @@ void* CUDTUnited::garbageCollect(void* p)
 
    THREAD_STATE_INIT("SRT:GC");
 
-   CGuard gcguard(self->m_GCStopLock);
-
    while (!self->m_bClosing)
    {
        INCREMENT_THREAD_ITERATIONS();
        self->checkBrokenSockets();
 
-       //#ifdef _WIN32
-       //      self->checkTLSValue();
-       //#endif
-
-       timeval now;
-       timespec timeout;
-       gettimeofday(&now, 0);
-       timeout.tv_sec = now.tv_sec + 1;
-       timeout.tv_nsec = now.tv_usec * 1000;
-
-       HLOGC(mglog.Debug, log << "GC: sleep until " << FormatTime(uint64_t(now.tv_usec) + 1000000*(timeout.tv_sec)));
-       pthread_cond_timedwait(
-               &self->m_GCStopCond, &self->m_GCStopLock, &timeout);
+       HLOGC(mglog.Debug, log << "GC: sleep 1 s");
+       self->m_checkState.wait_until(srt::timing::steady_clock::now() + 1s);
    }
 
    // remove all sockets and multiplexers

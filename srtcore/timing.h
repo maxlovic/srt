@@ -210,6 +210,12 @@ namespace srt
 
         public:
 
+            Timer();
+
+            ~Timer();
+
+        public:
+
             void wait_until(time_point<steady_clock> tp);
 
             void wake_up();

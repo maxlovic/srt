@@ -2715,7 +2715,7 @@ bool CUDT::interpretSrtHandshake(const CHandShake& hs, const CPacket& hspkt, uin
                 HLOGC(mglog.Debug, log << "interpretSrtHandshake: ... skipping " << MessageTypeStr(UMSG_EXT, cmd));
             }
 
-            if ( !NextExtensionBlock(Ref(begin), next, Ref(length)) )
+            if (!NextExtensionBlock(Ref(begin), next, Ref(length)))
                 break;
         }
     }
