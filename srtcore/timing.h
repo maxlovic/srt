@@ -63,11 +63,25 @@ namespace srt
         }
 
 
+        inline long long to_microseconds(const steady_clock::time_point tp)
+        {
+            return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
+        }
+
+
+        inline long long to_milliseconds(const steady_clock::duration &t)
+        {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(t).count();
+        }
+
+
         inline steady_clock::duration from_microseconds(long t_us)
         {
             return std::chrono::microseconds(t_us);
         }
 
+
+        inline steady_clock::duration from_milliseconds(long t_ms) { return std::chrono::milliseconds(t_ms); }
 
         inline steady_clock::duration from_seconds(long t_s)
         {

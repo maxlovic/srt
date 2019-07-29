@@ -524,8 +524,14 @@ private: // Identification
     int m_iUDPRcvBufSize;                        // UDP receiving buffer size
     int m_iIPversion;                            // IP version
     bool m_bRendezvous;                          // Rendezvous connection mode
+
+
+private:
+
+    using steady_clock = srt::timing::steady_clock;
+
 #ifdef SRT_ENABLE_CONNTIMEO
-    int m_iConnTimeOut;                          // connect timeout in milliseconds
+    steady_clock::duration m_ConnTimeOut;                          // connect timeout in milliseconds
 #endif
     int m_iSndTimeOut;                           // sending timeout in milliseconds
     int m_iRcvTimeOut;                           // receiving timeout in milliseconds
@@ -620,8 +626,6 @@ private: // Sending related data
 
 private:    // Timers
 
-    using steady_clock = srt::timing::steady_clock;
-
     //uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for Timer, ticks per microsecond
     /*volatile*/ steady_clock::time_point m_nextACKTime;             // Next ACK time, in CPU clock cycles, same below
     /*volatile*/ steady_clock::time_point m_nextNAKTime;             // Next NAK time
@@ -650,7 +654,7 @@ private:    // Timers
     volatile int32_t m_iSndCurrSeqNo;            // The largest sequence number that has been sent
     int32_t m_iLastDecSeq;                       // Sequence number sent last decrease occurs
     int32_t m_iSndLastAck2;                      // Last ACK2 sent back
-    uint64_t m_ullSndLastAck2Time;               // The time when last ACK2 was sent back
+    steady_clock::time_point m_SndLastAck2Time;                // The time when last ACK2 was sent back
     int32_t m_iISN;                              // Initial Sequence Number
     bool m_bPeerTsbPd;                           // Peer accept TimeStamp-Based Rx mode
     bool m_bPeerTLPktDrop;                       // Enable sender late packet dropping
@@ -807,7 +811,7 @@ private: // Trace
         int traceRcvUndecrypt;
         uint64_t traceRcvBytesUndecrypt;
         int64_t sndDuration;                // real time for sending
-        int64_t sndDurationCounter;         // timers to record the sending duration
+        steady_clock::time_point sndDurationCounter;         // timers to record the sending duration
     } m_stats;
 
 public:

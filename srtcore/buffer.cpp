@@ -59,6 +59,7 @@ modified by
 
 using namespace std;
 using namespace srt_logging;
+using namespace srt::timing;
 
 CSndBuffer::CSndBuffer(int size, int mss)
     : m_BufLock()
@@ -72,16 +73,13 @@ CSndBuffer::CSndBuffer(int size, int mss)
     , m_iMSS(mss)
     , m_iCount(0)
     , m_iBytesCount(0)
-    , m_ullLastOriginTime_us(0)
 #ifdef SRT_ENABLE_SNDBUFSZ_MAVG
-    , m_LastSamplingTime(0)
     , m_iCountMAvg(0)
     , m_iBytesCountMAvg(0)
     , m_TimespanMAvg(0)
 #endif
     , m_iInRatePktsCount(0)
     , m_iInRateBytesCount(0)
-    , m_InRateStartTime(0)
     , m_InRatePeriod(INPUTRATE_FAST_START_US)   // 0.5 sec (fast start)
     , m_iInRateBps(INPUTRATE_INITIAL_BYTESPS)
 {
@@ -155,7 +153,7 @@ void CSndBuffer::addBuffer(const char* data, int len, int ttl, bool order, uint6
         increase();
     }
 
-    const uint64_t time = CTimer::getTime();
+    const steady_clock::time_point time = steady_clock::now();
     int32_t inorder = order ? MSGNO_PACKET_INORDER::mask : 0;
 
     HLOGC(dlog.Debug, log << CONID() << "addBuffer: adding "
@@ -187,7 +185,7 @@ void CSndBuffer::addBuffer(const char* data, int len, int ttl, bool order, uint6
         // [PB_SOLO] - 1 packet per message
 
         s->m_ullSourceTime_us = srctime;
-        s->m_ullOriginTime_us = time;
+        s->m_OriginTime = time;
         s->m_iTTL = ttl;
 
         // XXX unchecked condition: s->m_pNext == NULL.
@@ -200,7 +198,7 @@ void CSndBuffer::addBuffer(const char* data, int len, int ttl, bool order, uint6
     m_iCount += size;
 
     m_iBytesCount += len;
-    m_ullLastOriginTime_us = time;
+    m_LastOriginTime = time;
 
     updateInputRate(time, size, len);
 
@@ -227,13 +225,13 @@ void CSndBuffer::setInputRateSmpPeriod(int period)
     m_InRatePeriod = (uint64_t)period; //(usec) 0=no input rate calculation
 }
 
-void CSndBuffer::updateInputRate(uint64_t time, int pkts, int bytes)
+void CSndBuffer::updateInputRate(const steady_clock::time_point &time, int pkts, int bytes)
 {
     //no input rate calculation
     if (m_InRatePeriod == 0)
         return;
 
-    if (m_InRateStartTime == 0)
+    if (is_zero(m_InRateStartTime))
     {
         m_InRateStartTime = time;
         return;
@@ -246,7 +244,7 @@ void CSndBuffer::updateInputRate(uint64_t time, int pkts, int bytes)
     const bool early_update = (m_InRatePeriod < INPUTRATE_RUNNING_US)
         && (m_iInRatePktsCount > INPUTRATE_MAX_PACKETS);
 
-    const uint64_t period_us = (time - m_InRateStartTime);
+    const uint64_t period_us = to_microseconds(time - m_InRateStartTime);
     if (early_update || period_us > m_InRatePeriod)
     {
         //Required Byte/sec rate (payload + headers)
@@ -328,7 +326,7 @@ int CSndBuffer::addBufferFromFile(fstream& ifs, int len)
    return total;
 }
 
-int CSndBuffer::readData(char** data, int32_t& msgno_bitset, uint64_t& srctime, int kflgs)
+int CSndBuffer::readData(char **data, int32_t &msgno_bitset, steady_clock::time_point &srctime, int kflgs)
 {
    // No data to read
    if (m_pCurrBlock == m_pLastBlock)
@@ -373,9 +371,11 @@ int CSndBuffer::readData(char** data, int32_t& msgno_bitset, uint64_t& srctime, 
    }
    msgno_bitset = m_pCurrBlock->m_iMsgNoBitset;
 
-   srctime =
+   // TODO: Use source time if it is provided.
+   srctime = m_pCurrBlock->m_OriginTime;
+   /*srctime =
       m_pCurrBlock->m_ullSourceTime_us ? m_pCurrBlock->m_ullSourceTime_us :
-      m_pCurrBlock->m_ullOriginTime_us;
+      m_pCurrBlock->m_OriginTime;*/
 
    m_pCurrBlock = m_pCurrBlock->m_pNext;
 
@@ -384,7 +384,8 @@ int CSndBuffer::readData(char** data, int32_t& msgno_bitset, uint64_t& srctime, 
    return readlen;
 }
 
-int CSndBuffer::readData(char** data, const int offset, int32_t& msgno_bitset, uint64_t& srctime, int& msglen)
+int CSndBuffer::readData(
+    char **data, const int offset, int32_t &msgno_bitset, steady_clock::time_point &srctime, int &msglen)
 {
    CGuard bufferguard(m_BufLock);
 
@@ -409,7 +410,7 @@ int CSndBuffer::readData(char** data, const int offset, int32_t& msgno_bitset, u
    // if found block is stale
    // (This is for messages that have declared TTL - messages that fail to be sent
    // before the TTL defined time comes, will be dropped).
-   if ((p->m_iTTL >= 0) && ((CTimer::getTime() - p->m_ullOriginTime_us) / 1000 > (uint64_t)p->m_iTTL))
+   if ((p->m_iTTL >= 0) && (to_milliseconds(steady_clock::now() - p->m_OriginTime) > (uint64_t)p->m_iTTL))
    {
       int32_t msgno = p->getMsgSeq();
       msglen = 1;
@@ -445,9 +446,11 @@ int CSndBuffer::readData(char** data, const int offset, int32_t& msgno_bitset, u
    // flags.
    msgno_bitset = p->m_iMsgNoBitset;
 
-   srctime = 
-      p->m_ullSourceTime_us ? p->m_ullSourceTime_us :
-      p->m_ullOriginTime_us;
+   // TODO: Use source time if it is provided.
+   srctime = m_pCurrBlock->m_OriginTime;
+   /*srctime =
+      m_pCurrBlock->m_ullSourceTime_us ? m_pCurrBlock->m_ullSourceTime_us :
+      m_pCurrBlock->m_OriginTime;*/
 
    HLOGC(dlog.Debug, log << CONID() << "CSndBuffer: extracting packet size=" << readlen << " to send [REXMIT]");
 
@@ -472,7 +475,7 @@ void CSndBuffer::ackData(int offset)
    m_iCount -= offset;
 
 #ifdef SRT_ENABLE_SNDBUFSZ_MAVG
-   updAvgBufSize(CTimer::getTime());
+   updAvgBufSize(steady_clock::now());
 #endif
 
    CTimer::triggerEvent();
@@ -492,32 +495,32 @@ int CSndBuffer::getAvgBufSize(ref_t<int> r_bytes, ref_t<int> r_tsp)
     CGuard bufferguard(m_BufLock); /* Consistency of pkts vs. bytes vs. spantime */
 
     /* update stats in case there was no add/ack activity lately */
-    updAvgBufSize(CTimer::getTime());
+    updAvgBufSize(steady_clock::now());
 
     bytes = m_iBytesCountMAvg;
     timespan = m_TimespanMAvg;
     return(m_iCountMAvg);
 }
 
-void CSndBuffer::updAvgBufSize(uint64_t now)
+void CSndBuffer::updAvgBufSize(const steady_clock::time_point &now)
 {
-   uint64_t elapsed = (now - m_LastSamplingTime) / 1000; //ms since last sampling
+   const uint64_t elapsed_ms = to_milliseconds(now - m_LastSamplingTime); //ms since last sampling
 
-   if ((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 > elapsed)
+   if ((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 > elapsed_ms)
       return;
 
-   if (1000000 < elapsed)
+   if (1000000 < elapsed_ms)
    {
       /* No sampling in last 1 sec, initialize average */
       m_iCountMAvg = getCurrBufSize(Ref(m_iBytesCountMAvg), Ref(m_TimespanMAvg));
       m_LastSamplingTime = now;
    } 
-   else //((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 <= elapsed)
+   else //((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 <= elapsed_ms)
    {
       /*
       * weight last average value between -1 sec and last sampling time (LST)
       * and new value between last sampling time and now
-      *                                      |elapsed|
+      *                                      |elapsed_ms|
       *   +----------------------------------+-------+
       *  -1                                 LST      0(now)
       */
@@ -525,13 +528,13 @@ void CSndBuffer::updAvgBufSize(uint64_t now)
       int bytescount;
       int count = getCurrBufSize(Ref(bytescount), Ref(instspan));
 
-      HLOGC(dlog.Debug, log << "updAvgBufSize: " << elapsed
+      HLOGC(dlog.Debug, log << "updAvgBufSize: " << elapsed_ms
               << ": " << count << " " << bytescount
               << " " << instspan << "ms");
 
-      m_iCountMAvg      = (int)(((count      * (1000 - elapsed)) + (count      * elapsed)) / 1000);
-      m_iBytesCountMAvg = (int)(((bytescount * (1000 - elapsed)) + (bytescount * elapsed)) / 1000);
-      m_TimespanMAvg    = (int)(((instspan   * (1000 - elapsed)) + (instspan   * elapsed)) / 1000);
+      m_iCountMAvg      = (int)(((count      * (1000 - elapsed_ms)) + (count      * elapsed_ms)) / 1000);
+      m_iBytesCountMAvg = (int)(((bytescount * (1000 - elapsed_ms)) + (bytescount * elapsed_ms)) / 1000);
+      m_TimespanMAvg    = (int)(((instspan   * (1000 - elapsed_ms)) + (instspan   * elapsed_ms)) / 1000);
       m_LastSamplingTime = now;
    }
 }
@@ -546,19 +549,19 @@ int CSndBuffer::getCurrBufSize(ref_t<int> bytes, ref_t<int> timespan)
    * Also, if there is only one pkt in buffer, the time difference will be 0.
    * Therefore, always add 1 ms if not empty.
    */
-   *timespan = 0 < m_iCount ? int((m_ullLastOriginTime_us - m_pFirstBlock->m_ullOriginTime_us) / 1000) + 1 : 0;
+   *timespan = 0 < m_iCount ? to_milliseconds(m_LastOriginTime - m_pFirstBlock->m_OriginTime) + 1 : 0;
 
    return m_iCount;
 }
 
-int CSndBuffer::dropLateData(int &bytes, uint64_t latetime)
+int CSndBuffer::dropLateData(int &bytes, const steady_clock::time_point &too_late_time)
 {
    int dpkts = 0;
    int dbytes = 0;
    bool move = false;
 
    CGuard bufferguard(m_BufLock);
-   for (int i = 0; i < m_iCount && m_pFirstBlock->m_ullOriginTime_us < latetime; ++ i)
+   for (int i = 0; i < m_iCount && m_pFirstBlock->m_OriginTime < too_late_time; ++ i)
    {
       dpkts++;
       dbytes += m_pFirstBlock->m_iLength;
@@ -573,7 +576,7 @@ int CSndBuffer::dropLateData(int &bytes, uint64_t latetime)
    bytes = dbytes;
 
 #ifdef SRT_ENABLE_SNDBUFSZ_MAVG
-   updAvgBufSize(CTimer::getTime());
+   updAvgBufSize(steady_clock::now());
 #endif /* SRT_ENABLE_SNDBUFSZ_MAVG */
 
 // CTimer::triggerEvent();
@@ -697,7 +700,6 @@ m_iNotch(0)
 //,m_TsbPdDriftSum(0)
 //,m_iTsbPdDriftNbSamples(0)
 #ifdef SRT_ENABLE_RCVBUFSZ_MAVG
-,m_LastSamplingTime(0)
 ,m_TimespanMAvg(0)
 ,m_iCountMAvg(0)
 ,m_iBytesCountMAvg(0)
@@ -784,7 +786,7 @@ int CRcvBuffer::readBuffer(char* data, int len)
    char* begin = data;
 #endif
 
-   uint64_t now = (m_bTsbPdMode ? CTimer::getTime() : uint64_t());
+   const steady_clock::time_point now = (m_bTsbPdMode ? steady_clock::now() : steady_clock::time_point());
 
    HLOGC(dlog.Debug, log << CONID() << "readBuffer: start=" << p << " lastack=" << lastack);
    while ((p != lastack) && (rs > 0))
@@ -1194,28 +1196,28 @@ int CRcvBuffer::getRcvAvgDataSize(int &bytes, int &timespan)
 }
 
 /* Update moving average of acked data pkts, bytes, and timespan (ms) of the receive buffer */
-void CRcvBuffer::updRcvAvgDataSize(uint64_t now)
+void CRcvBuffer::updRcvAvgDataSize(const steady_clock::time_point &now)
 {
-   uint64_t elapsed = (now - m_LastSamplingTime) / 1000; //ms since last sampling
+   const uint64_t elapsed_ms = to_milliseconds(now - m_LastSamplingTime); //ms since last sampling
 
-   if ((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 > elapsed)
+   if ((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 > elapsed_ms)
       return; /* Last sampling too recent, skip */
 
-   if (1000000 < elapsed)
+   if (1000000 < elapsed_ms)
    {
       /* No sampling in last 1 sec, initialize/reset moving average */
       m_iCountMAvg = getRcvDataSize(m_iBytesCountMAvg, m_TimespanMAvg);
       m_LastSamplingTime = now;
 
       HLOGC(dlog.Debug, log << "getRcvDataSize: " << m_iCountMAvg << " " << m_iBytesCountMAvg
-              << " " << m_TimespanMAvg << " ms elapsed: " << elapsed << " ms");
+              << " " << m_TimespanMAvg << " ms elapsed_ms: " << elapsed_ms << " ms");
    }
-   else if ((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 <= elapsed)
+   else if ((1000000 / SRT_MAVG_SAMPLING_RATE) / 1000 <= elapsed_ms)
    {
       /*
       * Weight last average value between -1 sec and last sampling time (LST)
       * and new value between last sampling time and now
-      *                                      |elapsed|
+      *                                      |elapsed_ms|
       *   +----------------------------------+-------+
       *  -1                                 LST      0(now)
       */
@@ -1223,13 +1225,13 @@ void CRcvBuffer::updRcvAvgDataSize(uint64_t now)
       int bytescount;
       int count = getRcvDataSize(bytescount, instspan);
 
-      m_iCountMAvg      = (int)(((count      * (1000 - elapsed)) + (count      * elapsed)) / 1000);
-      m_iBytesCountMAvg = (int)(((bytescount * (1000 - elapsed)) + (bytescount * elapsed)) / 1000);
-      m_TimespanMAvg    = (int)(((instspan   * (1000 - elapsed)) + (instspan   * elapsed)) / 1000);
+      m_iCountMAvg      = (int)(((count      * (1000 - elapsed_ms)) + (count      * elapsed_ms)) / 1000);
+      m_iBytesCountMAvg = (int)(((bytescount * (1000 - elapsed_ms)) + (bytescount * elapsed_ms)) / 1000);
+      m_TimespanMAvg    = (int)(((instspan   * (1000 - elapsed_ms)) + (instspan   * elapsed_ms)) / 1000);
       m_LastSamplingTime = now;
 
       HLOGC(dlog.Debug, log << "getRcvDataSize: " << count << " " << bytescount << " " << instspan
-              << " ms elapsed: " << elapsed << " ms");
+              << " ms elapsed_ms: " << elapsed_ms << " ms");
    }
 }
 #endif /* SRT_ENABLE_RCVBUFSZ_MAVG */
@@ -1380,7 +1382,7 @@ uint64_t CRcvBuffer::getTsbPdTimeBase(uint32_t timestamp)
    return(m_ullTsbPdTimeBase + carryover);
 }
 
-uint64_t CRcvBuffer::getPktTsbPdTime(uint32_t timestamp)
+steady_clock::time_point CRcvBuffer::getPktTsbPdTime(const steady_clock::time_point &timestamp)
 {
    return(getTsbPdTimeBase(timestamp) + m_uTsbPdDelay + timestamp + m_DriftTracer.drift());
 }
