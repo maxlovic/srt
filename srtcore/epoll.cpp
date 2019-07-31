@@ -76,6 +76,7 @@ modified by
 #include "udt.h"
 
 using namespace std;
+using namespace srt::timing;
 
 CEPoll::CEPoll():
 m_iIDSeed(0)
@@ -383,7 +384,7 @@ int CEPoll::wait(const int eid, set<SRTSOCKET>* readfds, set<SRTSOCKET>* writefd
 
    int total = 0;
 
-   int64_t entertime = CTimer::getTime();
+   steady_clock::time_point entertime = steady_clock::now();
    while (true)
    {
       CGuard::enterCS(m_EPollLock);
@@ -507,7 +508,7 @@ int CEPoll::wait(const int eid, set<SRTSOCKET>* readfds, set<SRTSOCKET>* writefd
       if (total > 0)
          return total;
 
-      if ((msTimeOut >= 0) && (int64_t(CTimer::getTime() - entertime) >= msTimeOut * int64_t(1000)))
+      if ((msTimeOut >= 0) && (to_microseconds(steady_clock::now() - entertime) >= msTimeOut * int64_t(1000)))
          throw CUDTException(MJ_AGAIN, MN_XMTIMEOUT, 0);
 
       CTimer::waitForEvent();

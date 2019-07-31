@@ -57,6 +57,7 @@ modified by
 #include <algorithm>
 
 using namespace std;
+using namespace srt::timing;
 
 namespace ACKWindowTools
 {
@@ -65,7 +66,7 @@ void store(Seq* r_aSeq, const size_t size, int& r_iHead, int& r_iTail, int32_t s
 {
    r_aSeq[r_iHead].iACKSeqNo = seq;
    r_aSeq[r_iHead].iACK = ack;
-   r_aSeq[r_iHead].TimeStamp = CTimer::getTime();
+   r_aSeq[r_iHead].TimeStamp = steady_clock::now();
 
    r_iHead = (r_iHead + 1) % size;
 
@@ -89,7 +90,7 @@ int acknowledge(Seq* r_aSeq, const size_t size, int& r_iHead, int& r_iTail, int3
             r_ack = r_aSeq[i].iACK;
 
             // calculate RTT
-            int rtt = int(CTimer::getTime() - r_aSeq[i].TimeStamp);
+            int rtt = to_microseconds(steady_clock::now() - r_aSeq[i].TimeStamp);
 
             if (i + 1 == r_iHead)
             {
@@ -118,7 +119,7 @@ int acknowledge(Seq* r_aSeq, const size_t size, int& r_iHead, int& r_iTail, int3
          r_ack = r_aSeq[j].iACK;
 
          // calculate RTT
-         int rtt = int(CTimer::getTime() - r_aSeq[j].TimeStamp);
+         int rtt = to_microseconds(steady_clock::now() - r_aSeq[j].TimeStamp);
 
          if (j == r_iHead)
          {

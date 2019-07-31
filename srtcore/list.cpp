@@ -53,6 +53,10 @@ modified by
 #include "list.h"
 #include "packet.h"
 
+
+using namespace srt::timing;
+
+
 CSndLossList::CSndLossList(int size):
 m_caSeq(),
 m_iHead(-1),
@@ -694,7 +698,7 @@ void CRcvLossList::getLossArray(int32_t* array, int& len, int limit)
 
 CRcvFreshLoss::CRcvFreshLoss(int32_t seqlo, int32_t seqhi, int initial_age): ttl(initial_age)
 {
-    CTimer::rdtsc(timestamp);
+    timestamp = steady_clock::now();
     seq[0] = seqlo;
     seq[1] = seqhi;
 }

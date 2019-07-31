@@ -345,7 +345,7 @@ public:
       /// @return true if ready to play, false otherwise (tsbpdtime may be !0 in
       /// both cases).
 
-   bool isRcvDataReady(ref_t<uint64_t> tsbpdtime, ref_t<int32_t> curpktseq);
+   bool isRcvDataReady(steady_clock::time_point &tsbpdtime, ref_t<int32_t> curpktseq);
    bool isRcvDataReady();
    bool isRcvDataAvailable()
    {
@@ -358,7 +358,7 @@ public:
       ///    @param [in] delay aggreed TsbPD delay
       /// @return 0
 
-   int setRcvTsbPdMode(uint64_t timebase, uint32_t delay);
+   int setRcvTsbPdMode(const steady_clock::time_point &timebase, const steady_clock::duration &delay);
 
       /// Add packet timestamp for drift caclculation and compensation
       /// @param [in] timestamp packet time stamp
@@ -382,7 +382,7 @@ public:
       ///                   IF skipseqno == -1, no missing packet but 1st not ready to play.
 
 
-   bool getRcvFirstMsg(ref_t<uint64_t> tsbpdtime, ref_t<bool> passack, ref_t<int32_t> skipseqno, ref_t<int32_t> curpktseq);
+   bool getRcvFirstMsg(steady_clock::time_point &tsbpdtime, ref_t<bool> passack, ref_t<int32_t> skipseqno, ref_t<int32_t> curpktseq);
 
       /// Update the ACK point of the buffer.
       /// @param [in] len size of data to be skip & acknowledged.
@@ -398,20 +398,20 @@ private:
       /// @retval false tsbpdtime = 0: no packet ready to play
 
 
-   bool getRcvReadyMsg(ref_t<uint64_t> tsbpdtime, ref_t<int32_t> curpktseq);
+   bool getRcvReadyMsg(steady_clock::time_point &tsbpdtime, ref_t<int32_t> curpktseq);
 
       /// Get packet delivery local time base (adjusted for wrap around)
       /// @param [in] timestamp packet timestamp (relative to peer StartTime), wrapping around every ~72 min
       /// @return local delivery time (usec)
 
-   uint64_t getTsbPdTimeBase(uint32_t timestamp);
+   steady_clock::time_point getTsbPdTimeBase(uint32_t timestamp);
 
       /// Get packet local delivery time
       /// @param [in] timestamp packet timestamp (relative to peer StartTime), wrapping around every ~72 min
       /// @return local delivery time (usec)
 
 public:
-   steady_clock::time_point getPktTsbPdTime(const steady_clock::time_point &timestamp);
+   steady_clock::time_point getPktTsbPdTime(uint32_t timestamp);
    int debugGetSize() const;
    bool empty() const;
 private:
@@ -446,9 +446,9 @@ private:
    int m_iAvgPayloadSz;                 // Average payload size for dropped bytes estimation
 
    bool m_bTsbPdMode;                   // true: apply TimeStamp-Based Rx Mode
-   uint32_t m_uTsbPdDelay;              // aggreed delay
-   uint64_t m_ullTsbPdTimeBase;         // localtime base for TsbPd mode
-   // Note: m_ullTsbPdTimeBase cumulates values from:
+   steady_clock::duration m_TsbPdDelay;              // aggreed delay
+   steady_clock::time_point m_TsbPdTimeBase;             // localtime base for TsbPd mode
+   // Note: m_TsbPdTimeBase cumulates values from:
    // 1. Initial SRT_CMD_HSREQ packet returned value diff to current time:
    //    == (NOW - PACKET_TIMESTAMP), at the time of HSREQ reception
    // 2. Timestamp overflow (@c CRcvBuffer::getTsbPdTimeBase), when overflow on packet detected

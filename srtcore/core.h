@@ -456,7 +456,6 @@ private:
     void unlose(const CPacket& oldpacket);
     void unlose(int32_t from, int32_t to);
 
-    void considerLegacySrtHandshake(uint64_t timebase);
     void checkSndTimers(Whether2RegenKm regen = DONT_REGEN_KM);
     void handshakeDone()
     {
@@ -554,7 +553,7 @@ private:
     bool m_bTwoWayData;
 
     // HSv4 (legacy handshake) support)
-    uint64_t m_ullSndHsLastTime_us;	    //Last SRT handshake request time
+    steady_clock::time_point m_SndHsLastTime;	    //Last SRT handshake request time
     int      m_iSndHsRetryCnt;       //SRT handshake retries left
 
     bool m_bMessageAPI;
@@ -636,6 +635,7 @@ private:    // Timers
     /*volatile*/ steady_clock::time_point m_lastRspTime;    // time stamp of last response from the peer
     /*volatile*/ steady_clock::time_point m_lastRspAckTime; // time stamp of last ACK from the peer
     /*volatile*/ steady_clock::time_point m_lastSndTime;    // time stamp of last data/ctrl sent (in system ticks)
+    steady_clock::time_point  m_LastWarningTime; // Last time that a warning message is sent
     steady_clock::time_point m_LastReqTime;                     // last time when a connection request is sent
     steady_clock::time_point       m_RcvPeerStartTime;
     steady_clock::time_point m_LingerExpiration;              // Linger expiration time (for GC to close a socket with data in sending buffer)
@@ -682,8 +682,6 @@ private: // Receiving related data
     int32_t m_iRcvLastAckAck;                    // Last sent ACK that has been acknowledged
     int32_t m_iAckSeqNo;                         // Last ACK sequence number
     int32_t m_iRcvCurrSeqNo;                     // Largest received sequence number
-
-    uint64_t m_ullLastWarningTime;               // Last time that a warning message is sent
 
     int32_t m_iPeerISN;                          // Initial Sequence Number of the peer side
     
@@ -749,7 +747,7 @@ private: // Generation and processing of packets
     /// @param origintime [in, out] origin timestamp of the packet
     ///
     /// @return payload size on success, <=0 on failure
-    int packLostData(CPacket& packet, uint64_t& origintime);
+    int packLostData(CPacket &packet, steady_clock::time_point &origintime);
 
     std::pair<int, CSndUList::time_point>
         packData(CPacket& packet);
@@ -825,6 +823,7 @@ public:
 private: // Timers functions
 
     void checkTimers();
+    void considerLegacySrtHandshake(const steady_clock::time_point &timebase);
     void checkACKTimer (const srt::timing::time_point<srt::timing::steady_clock>& currtime);
     void checkNAKTimer(const srt::timing::time_point<srt::timing::steady_clock>& currtime);
     bool checkExpTimer (const srt::timing::time_point<srt::timing::steady_clock>& currtime);  // returns true if the connection is expired

@@ -693,12 +693,8 @@ m_iNotch(0)
 ,m_iAckedBytesCount(0)
 ,m_iAvgPayloadSz(7*188)
 ,m_bTsbPdMode(false)
-,m_uTsbPdDelay(0)
-,m_ullTsbPdTimeBase(0)
+,m_TsbPdDelay(0)
 ,m_bTsbPdWrapCheck(false)
-//,m_iTsbPdDrift(0)
-//,m_TsbPdDriftSum(0)
-//,m_iTsbPdDriftNbSamples(0)
 #ifdef SRT_ENABLE_RCVBUFSZ_MAVG
 ,m_TimespanMAvg(0)
 ,m_iCountMAvg(0)
@@ -908,7 +904,10 @@ void CRcvBuffer::skipData(int len)
       m_iMaxPos = 0;
 }
 
-bool CRcvBuffer::getRcvFirstMsg(ref_t<uint64_t> r_tsbpdtime, ref_t<bool> r_passack, ref_t<int32_t> r_skipseqno, ref_t<int32_t> r_curpktseq)
+bool CRcvBuffer::getRcvFirstMsg(steady_clock::time_point &tsbpdtime,
+                                ref_t<bool>               r_passack,
+                                ref_t<int32_t>            r_skipseqno,
+                                ref_t<int32_t>            r_curpktseq)
 {
     int32_t& skipseqno = *r_skipseqno;
     bool& passack = *r_passack;
@@ -923,11 +922,11 @@ bool CRcvBuffer::getRcvFirstMsg(ref_t<uint64_t> r_tsbpdtime, ref_t<bool> r_passa
     // - @return: whether the reported packet is ready to play
 
     /* Check the acknowledged packets */
-    if (getRcvReadyMsg(r_tsbpdtime, r_curpktseq))
+    if (getRcvReadyMsg(tsbpdtime, r_curpktseq))
     {
         return true;
     }
-    else if (*r_tsbpdtime != 0)
+    else if (!is_zero(tsbpdtime))
     {
         return false;
     }
@@ -945,7 +944,7 @@ bool CRcvBuffer::getRcvFirstMsg(ref_t<uint64_t> r_tsbpdtime, ref_t<bool> r_passa
      * Check the not yet acked packets that may be stuck by missing packet(s).
      */
     bool haslost = false;
-    *r_tsbpdtime = 0; // redundant, for clarity
+    tsbpdtime = steady_clock::time_point(); // redundant, for clarity
     passack = true;
 
     // XXX SUSPECTED ISSUE with this algorithm:
@@ -986,8 +985,8 @@ bool CRcvBuffer::getRcvFirstMsg(ref_t<uint64_t> r_tsbpdtime, ref_t<bool> r_passa
         else
         {
             /* We got the 1st valid packet */
-            *r_tsbpdtime = getPktTsbPdTime(m_pUnit[i]->m_Packet.getMsgTimeStamp());
-            if (*r_tsbpdtime <= CTimer::getTime())
+            tsbpdtime = getPktTsbPdTime(m_pUnit[i]->m_Packet.getMsgTimeStamp());
+            if (tsbpdtime <= steady_clock::now())
             {
                 /* Packet ready to play */
                 if (haslost)
@@ -1019,13 +1018,13 @@ bool CRcvBuffer::getRcvFirstMsg(ref_t<uint64_t> r_tsbpdtime, ref_t<bool> r_passa
     return false;
 }
 
-bool CRcvBuffer::getRcvReadyMsg(ref_t<uint64_t> tsbpdtime, ref_t<int32_t> curpktseq)
+bool CRcvBuffer::getRcvReadyMsg(steady_clock::time_point &tsbpdtime, ref_t<int32_t> curpktseq)
 {
-    *tsbpdtime = 0;
     int rmpkts = 0; 
     int rmbytes = 0;
+    tsbpdtime   = steady_clock::time_point();
 
-    string reason = "NOT RECEIVED";
+    const char* reason = "NOT RECEIVED";
     for (int i = m_iStartPos, n = m_iLastAckPos; i != n; i = (i + 1) % m_iSize)
     {
         bool freeunit = false;
@@ -1046,9 +1045,9 @@ bool CRcvBuffer::getRcvReadyMsg(ref_t<uint64_t> tsbpdtime, ref_t<int32_t> curpkt
         }
         else
         {
-            *tsbpdtime = getPktTsbPdTime(m_pUnit[i]->m_Packet.getMsgTimeStamp());
-            int64_t towait = (*tsbpdtime - CTimer::getTime());
-            if (towait > 0)
+            tsbpdtime = getPktTsbPdTime(m_pUnit[i]->m_Packet.getMsgTimeStamp());
+            const steady_clock::duration towait = (tsbpdtime - steady_clock::now());
+            if (towait.count() > 0)
             {
                 HLOGC(mglog.Debug, log << "getRcvReadyMsg: found packet, but not ready to play (only in " << (towait/1000.0) << "ms)");
                 return false;
@@ -1087,34 +1086,33 @@ bool CRcvBuffer::getRcvReadyMsg(ref_t<uint64_t> tsbpdtime, ref_t<int32_t> curpkt
 
 
 /*
-* Return receivable data status (packet timestamp ready to play if TsbPd mode)
+* Return receivable data status (packet timestamp_us ready to play if TsbPd mode)
 * Return playtime (tsbpdtime) of 1st packet in queue, ready to play or not
 *
-* Return data ready to be received (packet timestamp ready to play if TsbPd mode)
+* Return data ready to be received (packet timestamp_us ready to play if TsbPd mode)
 * Using getRcvDataSize() to know if there is something to read as it was widely
 * used in the code (core.cpp) is expensive in TsbPD mode, hence this simpler function
 * that only check if first packet in queue is ready.
 */
-bool CRcvBuffer::isRcvDataReady(ref_t<uint64_t> tsbpdtime, ref_t<int32_t> curpktseq)
+bool CRcvBuffer::isRcvDataReady(steady_clock::time_point &tsbpdtime, ref_t<int32_t> curpktseq)
 {
-   *tsbpdtime = 0;
+   tsbpdtime = steady_clock::time_point();
 
    if (m_bTsbPdMode)
    {
        CPacket* pkt = getRcvReadyPacket();
-       if ( pkt )
-       {
-            /* 
-            * Acknowledged data is available,
-            * Only say ready if time to deliver.
-            * Report the timestamp, ready or not.
-            */
-            *curpktseq = pkt->getSeqNo();
-            *tsbpdtime = getPktTsbPdTime(pkt->getMsgTimeStamp());
-            if (*tsbpdtime <= CTimer::getTime())
-               return true;
-       }
-       return false;
+       if (!pkt)
+           return false;
+
+       /* 
+       * Acknowledged data is available,
+       * Only say ready if time to deliver.
+       * Report the timestamp_us, ready or not.
+       */
+       *curpktseq = pkt->getSeqNo();
+       tsbpdtime = getPktTsbPdTime(pkt->getMsgTimeStamp());
+
+       return tsbpdtime <= steady_clock::now();
    }
 
    return isRcvDataAvailable();
@@ -1138,10 +1136,10 @@ CPacket* CRcvBuffer::getRcvReadyPacket()
 
 bool CRcvBuffer::isRcvDataReady()
 {
-   uint64_t tsbpdtime;
+   steady_clock::time_point tsbpdtime;
    int32_t seq;
 
-   return isRcvDataReady(Ref(tsbpdtime), Ref(seq));
+   return isRcvDataReady(tsbpdtime, Ref(seq));
 }
 
 int CRcvBuffer::getAvailBufSize() const
@@ -1278,8 +1276,8 @@ int CRcvBuffer::getRcvDataSize(int &bytes, int &timespan)
 
          if ((NULL != m_pUnit[endpos]) && (NULL != m_pUnit[startpos]))
          {
-            uint64_t startstamp = getPktTsbPdTime(m_pUnit[startpos]->m_Packet.getMsgTimeStamp());
-            uint64_t endstamp = getPktTsbPdTime(m_pUnit[endpos]->m_Packet.getMsgTimeStamp());
+            const steady_clock::time_point startstamp = getPktTsbPdTime(m_pUnit[startpos]->m_Packet.getMsgTimeStamp());
+            const steady_clock::time_point endstamp   = getPktTsbPdTime(m_pUnit[endpos]->m_Packet.getMsgTimeStamp());
             /* 
             * There are sampling conditions where spantime is < 0 (big unsigned value).
             * It has been observed after changing the SRT latency from 450 to 200 on the sender.
@@ -1296,7 +1294,7 @@ int CRcvBuffer::getRcvDataSize(int &bytes, int &timespan)
             * 2014-12-08T15:04:50-0500     4475      124        0  100543  53.526        505     200
             */
             if (endstamp > startstamp)
-                timespan = (int)((endstamp - startstamp) / 1000);
+                timespan = to_milliseconds(endstamp - startstamp);
          }
          /* 
          * Timespan can be less then 1000 us (1 ms) if few packets. 
@@ -1325,7 +1323,7 @@ void CRcvBuffer::dropMsg(int32_t msgno, bool using_rexmit_flag)
          m_pUnit[i]->m_iFlag = CUnit::DROPPED;
 }
 
-uint64_t CRcvBuffer::getTsbPdTimeBase(uint32_t timestamp)
+steady_clock::time_point CRcvBuffer::getTsbPdTimeBase(uint32_t timestamp_us)
 {
    /* 
    * Packet timestamps wrap around every 01h11m35s (32-bit in usec)
@@ -1338,8 +1336,8 @@ uint64_t CRcvBuffer::getTsbPdTimeBase(uint32_t timestamp)
    */ 
    uint64_t carryover = 0;
 
-   // This function should generally return the timebase for the given timestamp.
-   // It's assumed that the timestamp, for which this function is being called,
+   // This function should generally return the timebase for the given timestamp_us.
+   // It's assumed that the timestamp_us, for which this function is being called,
    // is received as monotonic clock. This function then traces the changes in the
    // timestamps passed as argument and catches the moment when the 64-bit timebase
    // should be increased by a "segment length" (MAX_TIMESTAMP+1).
@@ -1358,36 +1356,37 @@ uint64_t CRcvBuffer::getTsbPdTimeBase(uint32_t timestamp)
    {
        // Wrap check period.
 
-       if (timestamp < TSBPD_WRAP_PERIOD)
+       if (timestamp_us < TSBPD_WRAP_PERIOD)
        {
            carryover = uint64_t(CPacket::MAX_TIMESTAMP) + 1;
        }
-       // 
-       else if ((timestamp >= TSBPD_WRAP_PERIOD)
-               &&  (timestamp <= (TSBPD_WRAP_PERIOD * 2)))
+       //
+       else if ((timestamp_us >= TSBPD_WRAP_PERIOD)
+               &&  (timestamp_us <= (TSBPD_WRAP_PERIOD * 2)))
        {
            /* Exiting wrap check period (if for packet delivery head) */
            m_bTsbPdWrapCheck = false;
-           m_ullTsbPdTimeBase += uint64_t(CPacket::MAX_TIMESTAMP) + 1;
+           m_TsbPdTimeBase += from_microseconds(uint64_t(CPacket::MAX_TIMESTAMP) + 1);
            tslog.Debug("tsppd wrap period ends");
        }
    }
-   // Check if timestamp is in the last 30 seconds before reaching the MAX_TIMESTAMP.
-   else if (timestamp > (CPacket::MAX_TIMESTAMP - TSBPD_WRAP_PERIOD))
+   // Check if timestamp_us is in the last 30 seconds before reaching the MAX_TIMESTAMP.
+   else if (timestamp_us > (CPacket::MAX_TIMESTAMP - TSBPD_WRAP_PERIOD))
    {
       /* Approching wrap around point, start wrap check period (if for packet delivery head) */
       m_bTsbPdWrapCheck = true;
       tslog.Debug("tsppd wrap period begins");
    }
-   return(m_ullTsbPdTimeBase + carryover);
+
+   return(m_TsbPdTimeBase + from_microseconds(carryover));
 }
 
-steady_clock::time_point CRcvBuffer::getPktTsbPdTime(const steady_clock::time_point &timestamp)
+steady_clock::time_point CRcvBuffer::getPktTsbPdTime(uint32_t timestamp)
 {
-   return(getTsbPdTimeBase(timestamp) + m_uTsbPdDelay + timestamp + m_DriftTracer.drift());
+   return(getTsbPdTimeBase(timestamp) + m_TsbPdDelay + from_microseconds(timestamp + m_DriftTracer.drift()));
 }
 
-int CRcvBuffer::setRcvTsbPdMode(uint64_t timebase, uint32_t delay)
+int CRcvBuffer::setRcvTsbPdMode(const steady_clock::time_point &timebase, const steady_clock::duration &delay)
 {
     m_bTsbPdMode = true;
     m_bTsbPdWrapCheck = false;
@@ -1397,14 +1396,14 @@ int CRcvBuffer::setRcvTsbPdMode(uint64_t timebase, uint32_t delay)
     // where ctrlpkt is the packet with SRT_CMD_HSREQ message.
     //
     // This function is called in the HSREQ reception handler only.
-    m_ullTsbPdTimeBase = timebase;
+    m_TsbPdTimeBase = timebase;
     // XXX Seems like this may not work correctly.
     // At least this solution this way won't work with application-supplied
     // timestamps. For that case the timestamps should be taken exclusively
     // from the data packets because in case of application-supplied timestamps
     // they come from completely different server and undergo different rules
     // of network latency and drift.
-    m_uTsbPdDelay = delay;
+    m_TsbPdDelay = delay;
     return 0;
 }
 
@@ -1475,7 +1474,7 @@ void CRcvBuffer::addRcvTsbPdDriftSample(uint32_t timestamp, pthread_mutex_t& mut
      * TsbPD time drift correction
      * TsbPD time slowly drift over long period depleting decoder buffer or raising latency
      * Re-evaluate the time adjustment value using a receiver control packet (ACK-ACK).
-     * ACK-ACK timestamp is RTT/2 ago (in sender's time base)
+     * ACK-ACK timestamp_us is RTT/2 ago (in sender's time base)
      * Data packet have origin time stamp which is older when retransmitted so not suitable for this.
      *
      * Every TSBPD_DRIFT_MAX_SAMPLES packets, the average drift is calculated
@@ -1485,15 +1484,15 @@ void CRcvBuffer::addRcvTsbPdDriftSample(uint32_t timestamp, pthread_mutex_t& mut
      */
 
     // Note important thing: this function is being called _EXCLUSIVELY_ in the handler
-    // of UMSG_ACKACK command reception. This means that the timestamp used here comes
+    // of UMSG_ACKACK command reception. This means that the timestamp_us used here comes
     // from the CONTROL domain, not DATA domain (timestamps from DATA domain may be
     // either schedule time or a time supplied by the application).
 
-    int64_t iDrift = CTimer::getTime() - (getTsbPdTimeBase(timestamp) + timestamp);
+    const steady_clock::duration iDrift = steady_clock::now() - (getTsbPdTimeBase(timestamp) + from_microseconds(timestamp));
 
     CGuard::enterCS(mutex_to_lock);
 
-    bool updated = m_DriftTracer.update(iDrift);
+    bool updated = m_DriftTracer.update(to_microseconds(iDrift));
 
 #ifdef SRT_DEBUG_TSBPD_DRIFT
     printDriftHistogram(iDrift);
@@ -1505,7 +1504,7 @@ void CRcvBuffer::addRcvTsbPdDriftSample(uint32_t timestamp, pthread_mutex_t& mut
         printDriftOffset(m_DriftTracer.overdrift(), m_DriftTracer.drift());
 #endif /* SRT_DEBUG_TSBPD_DRIFT */
 
-        m_ullTsbPdTimeBase += m_DriftTracer.overdrift();
+        m_TsbPdTimeBase += from_microseconds(m_DriftTracer.overdrift());
     }
 
     CGuard::leaveCS(mutex_to_lock);
@@ -1531,7 +1530,8 @@ int CRcvBuffer::readMsg(char* data, int len, ref_t<SRT_MSGCTRL> r_msgctl)
         passack = false;
         int seq = 0;
 
-        if (getRcvReadyMsg(Ref(rplaytime), Ref(seq)))
+        steady_clock::time_point play_time;
+        if (getRcvReadyMsg(play_time, Ref(seq)))
         {
             empty = false;
 
@@ -1552,6 +1552,7 @@ int CRcvBuffer::readMsg(char* data, int len, ref_t<SRT_MSGCTRL> r_msgctl)
                 m_ulPdHisto[3][1]++;
 #endif   /* SRT_DEBUG_TSBPD_OUTJITTER */
         }
+        rplaytime = to_microseconds(play_time.time_since_epoch());
     }
     else
     {

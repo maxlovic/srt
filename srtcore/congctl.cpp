@@ -34,6 +34,7 @@
 #include "logging.h"
 
 using namespace std;
+using namespace srt::timing;
 using namespace srt_logging;
 
 SrtCongestionControlBase::SrtCongestionControlBase(CUDT* parent)
@@ -253,7 +254,7 @@ class FileCC: public SrtCongestionControlBase
 
     // Fields from CUDTCC
     int m_iRCInterval;          // UDT Rate control interval
-    uint64_t m_LastRCTime;      // last rate increase time
+    steady_clock::time_point m_LastRCTime;      // last rate increase time
     bool m_bSlowStart;          // if in slow start phase
     int32_t m_iLastAck;         // last ACKed seq no
     bool m_bLoss;               // if loss happened since last rate increase
@@ -272,7 +273,7 @@ public:
         : SrtCongestionControlBase(parent)
         , m_iACKPeriod(CUDT::COMM_SYN_INTERVAL_US)
         , m_iRCInterval(CUDT::COMM_SYN_INTERVAL_US)
-        , m_LastRCTime(CTimer::getTime())
+        , m_LastRCTime(steady_clock::now())
         , m_bSlowStart(true)
         , m_iLastAck(parent->sndSeqNo())
         , m_bLoss(false)
@@ -336,8 +337,8 @@ private:
     {
         const int ack = arg.get<EventVariant::ACK>();
 
-        const uint64_t currtime = CTimer::getTime();
-        if (currtime - m_LastRCTime < (uint64_t)m_iRCInterval)
+        const steady_clock::time_point currtime = steady_clock::now();
+        if (to_microseconds(currtime - m_LastRCTime) < m_iRCInterval)
             return;
 
         m_LastRCTime = currtime;
