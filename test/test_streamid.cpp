@@ -117,6 +117,36 @@ TEST(StreamID, Decode)
 
 
 
+TEST(StreamID, DecodeHandleQuotes)
+{
+    const string streamid = "#!::u=haivision,r=\"reso,urce,name\",s=154484316484,t=stream,m=request";
+
+    const size_t elem_size = 64;
+    const size_t num_elems = 10;
+    char buffer[num_elems * elem_size];
+    char* result[num_elems] = {};
+    for (size_t i = 0; i < num_elems; ++i)
+    {
+        result[i] = buffer + i * elem_size;
+    }
+
+    const size_t res = srt_streamid_decode(streamid.c_str(), streamid.size(), result, num_elems, elem_size);
+    EXPECT_EQ(res, 10);
+
+    EXPECT_EQ(strcmp(result[0], "u"), 0);
+    EXPECT_EQ(strcmp(result[1], "haivision"), 0);
+    EXPECT_EQ(strcmp(result[2], "r"), 0);
+    EXPECT_EQ(strcmp(result[3], "reso,urce,name"), 0);
+    EXPECT_EQ(strcmp(result[4], "s"), 0);
+    EXPECT_EQ(strcmp(result[5], "154484316484"), 0);
+    EXPECT_EQ(strcmp(result[6], "t"), 0);
+    EXPECT_EQ(strcmp(result[7], "stream"), 0);
+    EXPECT_EQ(strcmp(result[8], "m"), 0);
+    EXPECT_EQ(strcmp(result[9], "request"), 0);
+}
+
+
+
 TEST(StreamID, Encode)
 {
     const size_t num_elems = 10;
