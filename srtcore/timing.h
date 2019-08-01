@@ -196,14 +196,17 @@ class SyncEvent
     time_point<steady_clock> m_sched_time;
 };
 
-
-
 // Mutex section
 
 // Mutex for C++03 should call pthread init and destroy
-using Mutex = mutex;
+using Mutex      = mutex;
+using UniqueLock = unique_lock<mutex>;
 
-
+struct LockGuard
+{
+    static void enterCS(Mutex &m) { return m.lock(); }
+    static void leaveCS(Mutex &m) { return m.unlock(); }
+};
 
 }; // namespace sync
 }; // namespace srt

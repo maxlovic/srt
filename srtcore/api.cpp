@@ -932,7 +932,7 @@ int CUDTUnited::close(const SRTSOCKET u)
 
       HLOGC(mglog.Debug, log << s->m_pUDT->CONID() << " CLOSING (removing listener immediately)");
       {
-          CGuard cg(s->m_pUDT->m_ConnectionLock);
+          UniqueLock cg(s->m_pUDT->m_ConnectionLock);
           s->m_pUDT->m_bListening = false;
           s->m_pUDT->m_pRcvQueue->removeListener(s->m_pUDT);
       }
