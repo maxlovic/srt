@@ -239,7 +239,7 @@ private:
 
 private:
 
-    srt::timing::Timer  m_checkState;
+    srt::timing::SyncEvent  m_checkState;
    volatile bool m_bClosing;
 
    pthread_mutex_t m_InitLock;

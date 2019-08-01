@@ -489,7 +489,7 @@ CSndQueue::~CSndQueue()
 }
 
 
-void CSndQueue::init(CChannel* c, srt::timing::Timer* t)
+void CSndQueue::init(CChannel* c, srt::timing::SyncEvent* t)
 {
    m_pChannel = c;
    m_pTimer = t;

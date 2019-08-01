@@ -625,7 +625,7 @@ private: // Sending related data
 
 private:    // Timers
 
-    //uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for Timer, ticks per microsecond
+    //uint64_t m_ullCPUFrequency;               // CPU clock frequency, used for SyncEvent, ticks per microsecond
     /*volatile*/ steady_clock::time_point m_nextACKTime;             // Next ACK time, in CPU clock cycles, same below
     /*volatile*/ steady_clock::time_point m_nextNAKTime;             // Next NAK time
 
@@ -718,7 +718,7 @@ private: // synchronization: mutexes and conditions
 
     pthread_mutex_t m_AckLock;                   // used to protected sender's loss list when processing ACK
 
-    srt::timing::Timer m_RecvDataSync;
+    srt::timing::SyncEvent m_RecvDataSync;
 
     pthread_mutex_t m_SendLock;                  // used to synchronize "send" call
     pthread_mutex_t m_RecvLock;                  // used to synchronize "recv" call

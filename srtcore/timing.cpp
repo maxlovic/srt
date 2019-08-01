@@ -184,20 +184,20 @@ srt::timing::steady_clock::duration srt::timing::from_microseconds(long t_us)
 #ifdef USE_STL_CHRONO
 
 
-srt::timing::Timer::Timer()
+srt::timing::SyncEvent::SyncEvent()
 {}
 
 
-srt::timing::Timer::~Timer()
+srt::timing::SyncEvent::~SyncEvent()
 {}
 
 
-bool srt::timing::Timer::wait_until(time_point<steady_clock> tp)
+bool srt::timing::SyncEvent::wait_until(time_point<steady_clock> tp)
 {
     // TODO: Add busy waiting
 
     //using namespace srt_logging;
-    //LOGC(dlog.Note, log << "Timer::wait_until delta="
+    //LOGC(dlog.Note, log << "SyncEvent::wait_until delta="
     //    << std::chrono::duration_cast<std::chrono::microseconds>(tp - steady_clock::now()).count() << " us");
     std::unique_lock<std::mutex> lk(m_tick_lock);
     m_sched_time = tp;
@@ -205,7 +205,7 @@ bool srt::timing::Timer::wait_until(time_point<steady_clock> tp)
 }
 
 
-bool srt::timing::Timer::wait_for(steady_clock::duration timeout)
+bool srt::timing::SyncEvent::wait_for(steady_clock::duration timeout)
 {
     std::unique_lock<std::mutex> lk(m_tick_lock);
     return m_tick_cond.wait_for(lk, timeout) != cv_status::timeout;
@@ -214,7 +214,7 @@ bool srt::timing::Timer::wait_for(steady_clock::duration timeout)
 }
 
 
-void srt::timing::Timer::wake_up()
+void srt::timing::SyncEvent::wake_up()
 {
     m_tick_cond.notify_one();
 }

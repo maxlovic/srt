@@ -235,14 +235,14 @@ namespace srt
 #endif
 
 
-        class Timer
+        class SyncEvent
         {
 
         public:
 
-            Timer();
+            SyncEvent();
 
-            ~Timer();
+            ~SyncEvent();
 
         public:
 
