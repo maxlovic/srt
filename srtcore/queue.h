@@ -206,11 +206,8 @@ private:
    int m_iArrayLength;			// physical length of the array
    int m_iLastEntry;			// position of last entry on the heap array
 
-   pthread_mutex_t m_ListLock;
-
-   pthread_mutex_t* m_pWindowLock;
-   pthread_cond_t* m_pWindowCond;
-
+   srt::sync::Mutex m_ListLock;
+   srt::sync::SyncEvent* m_pWindowSync;
    srt::sync::SyncEvent* m_pTimer;
 
 private:
@@ -344,7 +341,7 @@ private:
    };
    std::list<CRL> m_lRendezvousID;      // The sockets currently in rendezvous mode
 
-   pthread_mutex_t m_RIDVectorLock;
+   srt::sync::Mutex m_RIDVectorLock;
 };
 
 class CSndQueue
@@ -407,9 +404,7 @@ private:
    CSndUList* m_pSndUList;              // List of UDT instances for data sending
    CChannel* m_pChannel;                // The UDP channel for data sending
    srt::sync::SyncEvent* m_pTimer;        // Timing facility
-
-   pthread_mutex_t m_WindowLock;
-   pthread_cond_t m_WindowCond;
+   srt::sync::SyncEvent  m_WindowSync;
 
    volatile bool m_bClosing;		// closing the worker
    pthread_cond_t m_ExitCond;
@@ -507,16 +502,16 @@ private:
    void storePkt(int32_t id, CPacket* pkt);
 
 private:
-   pthread_mutex_t m_LSLock;
+   srt::sync::mutex m_LSLock;
    CUDT* m_pListener;                                   // pointer to the (unique, if any) listening UDT entity
    CRendezvousQueue* m_pRendezvousQueue;                // The list of sockets in rendezvous mode
 
    std::vector<CUDT*> m_vNewEntry;                      // newly added entries, to be inserted
-   pthread_mutex_t m_IDLock;
+   srt::sync::Mutex m_IDLock;
 
+   srt::sync::Mutex                         m_BufferLock;
    std::map<int32_t, std::queue<CPacket*> > m_mBuffer;	// temporary buffer for rendezvous connection request
-   pthread_mutex_t m_PassLock;
-   pthread_cond_t m_PassCond;
+   srt::sync::SyncEvent                     m_PassSync;
 
 private:
    CRcvQueue(const CRcvQueue&);

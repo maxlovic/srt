@@ -165,6 +165,21 @@ steady_clock::duration from_microseconds(long t_us);
 
 #endif
 
+
+
+// Mutex section
+
+// Mutex for C++03 should call pthread init and destroy
+using Mutex      = mutex;
+using UniqueLock = unique_lock<mutex>;
+
+struct LockGuard
+{
+    static void enterCS(Mutex &m) { return m.lock(); }
+    static void leaveCS(Mutex &m) { return m.unlock(); }
+};
+
+
 class SyncEvent
 {
 
@@ -172,6 +187,10 @@ class SyncEvent
     SyncEvent();
 
     ~SyncEvent();
+
+  public:
+
+      //Mutex &mutex() { return m_tick_lock; }
 
   public:
     /// @return true  if condition occured
@@ -187,7 +206,7 @@ class SyncEvent
 
   private:
 #ifdef USE_STL_CHRONO
-    mutex              m_tick_lock;
+    Mutex              m_tick_lock;
     condition_variable m_tick_cond;
 #else
     pthread_cond_t  m_tick_cond;
@@ -196,17 +215,7 @@ class SyncEvent
     time_point<steady_clock> m_sched_time;
 };
 
-// Mutex section
 
-// Mutex for C++03 should call pthread init and destroy
-using Mutex      = mutex;
-using UniqueLock = unique_lock<mutex>;
-
-struct LockGuard
-{
-    static void enterCS(Mutex &m) { return m.lock(); }
-    static void leaveCS(Mutex &m) { return m.unlock(); }
-};
 
 }; // namespace sync
 }; // namespace srt
