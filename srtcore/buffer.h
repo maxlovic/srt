@@ -75,7 +75,7 @@ public:
 
 public:
 
-    using steady_clock = srt::timing::steady_clock;
+    using steady_clock = srt::sync::steady_clock;
 
       /// Insert a user buffer into the sending list.
       /// @param [in] data pointer to the user data block.
@@ -249,7 +249,7 @@ public:
 
 public:
 
-    using steady_clock = srt::timing::steady_clock;
+    using steady_clock = srt::sync::steady_clock;
 
       /// Write data into the buffer.
       /// @param [in] unit pointer to a data unit containing new packet

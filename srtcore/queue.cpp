@@ -64,7 +64,7 @@ modified by
 #include "queue.h"
 
 using namespace std;
-using namespace srt::timing;
+using namespace srt::sync;
 using namespace srt_logging;
 
 CUnitQueue::CUnitQueue():
@@ -489,7 +489,7 @@ CSndQueue::~CSndQueue()
 }
 
 
-void CSndQueue::init(CChannel* c, srt::timing::SyncEvent* t)
+void CSndQueue::init(CChannel* c, srt::sync::SyncEvent* t)
 {
    m_pChannel = c;
    m_pTimer = t;

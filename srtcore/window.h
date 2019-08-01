@@ -63,7 +63,7 @@ modified by
 
 namespace ACKWindowTools
 {
-    using steady_clock = srt::timing::steady_clock;
+    using steady_clock = srt::sync::steady_clock;
 
    struct Seq
    {
@@ -164,7 +164,7 @@ public:
 
 public:
 
-    using steady_clock = srt::timing::steady_clock;
+    using steady_clock = srt::sync::steady_clock;
 
    /// read the minimum packet sending interval.
    /// @return minimum packet sending interval (microseconds).

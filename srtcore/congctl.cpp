@@ -34,7 +34,7 @@
 #include "logging.h"
 
 using namespace std;
-using namespace srt::timing;
+using namespace srt::sync;
 using namespace srt_logging;
 
 SrtCongestionControlBase::SrtCongestionControlBase(CUDT* parent)

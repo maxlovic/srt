@@ -80,7 +80,7 @@ public:
    /// of sockets in order to prevent other methods from accessing invalid address.
    /// A timer is started and the socket will be removed after approximately
    /// 1 second (see CUDTUnited::checkBrokenSockets()).
-   srt::timing::steady_clock::time_point m_ClosureTimeStamp;
+   srt::sync::steady_clock::time_point m_ClosureTimeStamp;
 
    int m_iIPversion;                         //< IP version
    sockaddr* m_pSelfAddr;                    //< pointer to the local address of the socket
@@ -239,7 +239,7 @@ private:
 
 private:
 
-    srt::timing::SyncEvent  m_checkState;
+    srt::sync::SyncEvent  m_checkState;
    volatile bool m_bClosing;
 
    pthread_mutex_t m_InitLock;

@@ -54,7 +54,7 @@ modified by
 #include "packet.h"
 
 
-using namespace srt::timing;
+using namespace srt::sync;
 
 
 CSndLossList::CSndLossList(int size):

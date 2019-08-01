@@ -146,7 +146,7 @@ private:
 
 struct CSNode
 {
-    using steady_clock = srt::timing::steady_clock;
+   using steady_clock = srt::sync::steady_clock;
    CUDT* m_pUDT;		// Pointer to the instance of CUDT socket
 
    steady_clock::time_point m_timeStamp;
@@ -164,8 +164,8 @@ public:
 
 public:
 
-    using clock = srt::timing::steady_clock;
-    using time_point = srt::timing::time_point<clock>;
+    using clock = srt::sync::steady_clock;
+    using time_point = srt::sync::time_point<clock>;
 
 public:
 
@@ -211,7 +211,7 @@ private:
    pthread_mutex_t* m_pWindowLock;
    pthread_cond_t* m_pWindowCond;
 
-   srt::timing::SyncEvent* m_pTimer;
+   srt::sync::SyncEvent* m_pTimer;
 
 private:
    CSndUList(const CSndUList&);
@@ -220,7 +220,7 @@ private:
 
 struct CRNode
 {
-   using steady_clock = srt::timing::steady_clock;
+   using steady_clock = srt::sync::steady_clock;
    CUDT* m_pUDT;                // Pointer to the instance of CUDT socket
    steady_clock::time_point m_TimeStamp;      // Time Stamp
 
@@ -318,7 +318,7 @@ public:
 
 public:
 
-   using steady_clock = srt::timing::steady_clock;
+   using steady_clock = srt::sync::steady_clock;
 
    void insert(const SRTSOCKET& id, CUDT* u, int ipv, const sockaddr* addr, const steady_clock::time_point &ttl);
 
@@ -368,7 +368,7 @@ public:
       /// @param [in] c UDP channel to be associated to the queue
       /// @param [in] t SyncEvent
 
-   void init(CChannel* c, srt::timing::SyncEvent* t);
+   void init(CChannel* c, srt::sync::SyncEvent* t);
 
       /// Send out a packet to a given address.
       /// @param [in] addr destination address
@@ -406,7 +406,7 @@ private:
 private:
    CSndUList* m_pSndUList;              // List of UDT instances for data sending
    CChannel* m_pChannel;                // The UDP channel for data sending
-   srt::timing::SyncEvent* m_pTimer;        // Timing facility
+   srt::sync::SyncEvent* m_pTimer;        // Timing facility
 
    pthread_mutex_t m_WindowLock;
    pthread_cond_t m_WindowCond;
@@ -436,7 +436,7 @@ class CRcvQueue
 {
 friend class CUDT;
 friend class CUDTUnited;
-using steady_clock = srt::timing::steady_clock;
+using steady_clock = srt::sync::steady_clock;
 
 public:
    CRcvQueue();
@@ -528,7 +528,7 @@ struct CMultiplexer
    CSndQueue* m_pSndQueue;  // The sending queue
    CRcvQueue* m_pRcvQueue;  // The receiving queue
    CChannel* m_pChannel;    // The UDP channel for sending and receiving
-   srt::timing::SyncEvent* m_pTimer;        // The timer
+   srt::sync::SyncEvent* m_pTimer;        // The timer
 
    int m_iPort;         // The UDP port number of this multiplexer
    int m_iIPversion;    // IP version

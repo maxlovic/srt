@@ -156,23 +156,23 @@ namespace srt
 
 
 
-srt::timing::time_point<srt::timing::steady_clock>
-    srt::timing::steady_clock::now()
+srt::sync::time_point<srt::sync::steady_clock>
+    srt::sync::steady_clock::now()
 {
     uint64_t x = 0;
     rdtsc(x);
-    return time_point<srt::timing::steady_clock>(x);
+    return time_point<srt::sync::steady_clock>(x);
 }
 
 
 
-long long srt::timing::to_microseconds(const steady_clock::duration& t)
+long long srt::sync::to_microseconds(const steady_clock::duration& t)
 {
     return t.count() / s_cpu_frequency;
 }
 
 
-srt::timing::steady_clock::duration srt::timing::from_microseconds(long t_us)
+srt::sync::steady_clock::duration srt::sync::from_microseconds(long t_us)
 {
     return duration(t_us * s_cpu_frequency);
 }
@@ -184,15 +184,15 @@ srt::timing::steady_clock::duration srt::timing::from_microseconds(long t_us)
 #ifdef USE_STL_CHRONO
 
 
-srt::timing::SyncEvent::SyncEvent()
+srt::sync::SyncEvent::SyncEvent()
 {}
 
 
-srt::timing::SyncEvent::~SyncEvent()
+srt::sync::SyncEvent::~SyncEvent()
 {}
 
 
-bool srt::timing::SyncEvent::wait_until(time_point<steady_clock> tp)
+bool srt::sync::SyncEvent::wait_until(time_point<steady_clock> tp)
 {
     // TODO: Add busy waiting
 
@@ -205,7 +205,7 @@ bool srt::timing::SyncEvent::wait_until(time_point<steady_clock> tp)
 }
 
 
-bool srt::timing::SyncEvent::wait_for(steady_clock::duration timeout)
+bool srt::sync::SyncEvent::wait_for(steady_clock::duration timeout)
 {
     std::unique_lock<std::mutex> lk(m_tick_lock);
     return m_tick_cond.wait_for(lk, timeout) != cv_status::timeout;
@@ -214,7 +214,7 @@ bool srt::timing::SyncEvent::wait_for(steady_clock::duration timeout)
 }
 
 
-void srt::timing::SyncEvent::wake_up()
+void srt::sync::SyncEvent::wake_up()
 {
     m_tick_cond.notify_one();
 }
@@ -222,21 +222,21 @@ void srt::timing::SyncEvent::wake_up()
 #else
 
 
-srt::timing::Timer::Timer()
+srt::sync::Timer::Timer()
 {
     pthread_mutex_init(&m_tick_lock, NULL);
     pthread_cond_init(&m_tick_cond, NULL);
 }
 
 
-~srt::timing::Timer::Timer()
+~srt::sync::Timer::Timer()
 {
     pthread_mutex_destroy(&m_tick_lock, NULL);
     pthread_cond_destroy (&m_tick_cond, NULL);
 }
 
 
-void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
+void srt::sync::Timer::wait_until(time_point<steady_clock> tp)
 {
     // Use class member such that the method can be interrupted by others
     m_sched_time = tp;
@@ -273,7 +273,7 @@ void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
 }
 
 
-void srt::timing::Timer::wake_up()
+void srt::sync::Timer::wake_up()
 {
     m_sched_time = steady_clock::now();
     pthread_cond_signal(&m_tick_cond);

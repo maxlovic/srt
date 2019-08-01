@@ -527,8 +527,8 @@ private: // Identification
 
 private:
 
-    using steady_clock = srt::timing::steady_clock;
-    using SyncEvent = srt::timing::SyncEvent;
+    using steady_clock = srt::sync::steady_clock;
+    using SyncEvent = srt::sync::SyncEvent;
 
 #ifdef SRT_ENABLE_CONNTIMEO
     steady_clock::duration m_ConnTimeOut;                          // connect timeout in milliseconds
@@ -615,10 +615,10 @@ private: // Sending related data
     CSndLossList* m_pSndLossList;                // Sender loss list
     CPktTimeWindow<16, 16> m_SndTimeWindow;            // Packet sending time window
 
-    /*volatile*/ srt::timing::steady_clock::duration
+    /*volatile*/ srt::sync::steady_clock::duration
         m_sendInterval;          // Inter-packet time, in CPU clock cycles
 
-    /*volatile*/ srt::timing::steady_clock::duration
+    /*volatile*/ srt::sync::steady_clock::duration
         m_sendTimeDiff;                         // aggregate difference in inter-packet sending time
 
     volatile int m_iFlowWindowSize;              // Flow control window size
@@ -719,7 +719,7 @@ private: // synchronization: mutexes and conditions
 
     pthread_mutex_t m_AckLock;                   // used to protected sender's loss list when processing ACK
 
-    srt::timing::SyncEvent m_RecvDataSync;
+    srt::sync::SyncEvent m_RecvDataSync;
 
     pthread_mutex_t m_SendLock;                  // used to synchronize "send" call
     pthread_mutex_t m_RecvLock;                  // used to synchronize "recv" call
@@ -762,7 +762,7 @@ private: // Trace
 
     struct CoreStats
     {
-        srt::timing::steady_clock::time_point startTime;                 // timestamp when the UDT entity is started
+        srt::sync::steady_clock::time_point startTime;                 // timestamp when the UDT entity is started
         int64_t sentTotal;                  // total number of sent data packets, including retransmissions
         int64_t recvTotal;                  // total number of received packets
         int sndLossTotal;                   // total number of lost packets (sender side)
@@ -784,7 +784,7 @@ private: // Trace
         uint64_t m_rcvBytesUndecryptTotal;
         int64_t m_sndDurationTotal;         // total real time for sending
 
-        srt::timing::steady_clock::time_point lastSampleTime;            // last performance sample time
+        srt::sync::steady_clock::time_point lastSampleTime;            // last performance sample time
         int64_t traceSent;                  // number of packets sent in the last trace interval
         int64_t traceRecv;                  // number of packets received in the last trace interval
         int traceSndLoss;                   // number of lost packets in the last trace interval (sender side)
@@ -824,10 +824,10 @@ private: // Timers functions
 
     void checkTimers();
     void considerLegacySrtHandshake(const steady_clock::time_point &timebase);
-    void checkACKTimer (const srt::timing::time_point<srt::timing::steady_clock>& currtime);
-    void checkNAKTimer(const srt::timing::time_point<srt::timing::steady_clock>& currtime);
-    bool checkExpTimer (const srt::timing::time_point<srt::timing::steady_clock>& currtime);  // returns true if the connection is expired
-    void checkRexmitTimer(const srt::timing::time_point<srt::timing::steady_clock>& currtime);
+    void checkACKTimer (const srt::sync::time_point<srt::sync::steady_clock>& currtime);
+    void checkNAKTimer(const srt::sync::time_point<srt::sync::steady_clock>& currtime);
+    bool checkExpTimer (const srt::sync::time_point<srt::sync::steady_clock>& currtime);  // returns true if the connection is expired
+    void checkRexmitTimer(const srt::sync::time_point<srt::sync::steady_clock>& currtime);
 
 public: // For the use of CCryptoControl
     // HaiCrypt configuration

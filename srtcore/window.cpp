@@ -57,7 +57,7 @@ modified by
 #include <algorithm>
 
 using namespace std;
-using namespace srt::timing;
+using namespace srt::sync;
 
 namespace ACKWindowTools
 {

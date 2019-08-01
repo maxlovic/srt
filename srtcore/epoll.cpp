@@ -76,7 +76,7 @@ modified by
 #include "udt.h"
 
 using namespace std;
-using namespace srt::timing;
+using namespace srt::sync;
 
 CEPoll::CEPoll():
 m_iIDSeed(0)

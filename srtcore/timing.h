@@ -11,7 +11,6 @@
 
 #define USE_STL_CHRONO
 
-
 #include <cstdlib>
 #ifdef USE_STL_CHRONO
 #include <chrono>
@@ -29,251 +28,182 @@
 //#include "udt.h"
 #endif
 
-
 #include "utilities.h"
-
-
 
 namespace srt
 {
-    namespace timing
+namespace sync
+{
+using namespace std;
+
+#ifdef USE_STL_CHRONO
+
+template <class Clock, class Duration = typename Clock::duration>
+using time_point = chrono::time_point<Clock, Duration>;
+
+using system_clock   = chrono::system_clock;
+using high_res_clock = chrono::high_resolution_clock;
+using steady_clock   = chrono::steady_clock;
+
+uint64_t get_timestamp_us();
+
+inline long long to_microseconds(const steady_clock::duration &t)
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
+}
+
+inline long long to_microseconds(const steady_clock::time_point tp)
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
+}
+
+inline long long to_milliseconds(const steady_clock::duration &t)
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(t).count();
+}
+
+inline steady_clock::duration from_microseconds(long t_us) { return std::chrono::microseconds(t_us); }
+
+inline steady_clock::duration from_milliseconds(long t_ms) { return std::chrono::milliseconds(t_ms); }
+
+inline steady_clock::duration from_seconds(long t_s) { return std::chrono::seconds(t_s); }
+
+template <class Clock, class Duration = typename Clock::duration>
+inline bool is_zero(const time_point<Clock, Duration> &tp)
+{
+    return tp.time_since_epoch() == Clock::duration::zero();
+}
+
+#else
+
+class duration
+{
+
+  public:
+    duration()
+        : m_duration(0)
     {
-        using namespace std;
+    }
 
+    duration(uint64_t d)
+        : m_duration(d)
+    {
+    }
 
-#ifdef USE_STL_CHRONO
+  public:
+    uint64_t count() const { return m_duration; }
 
-        template<
-            class Clock,
-            class Duration = typename Clock::duration
-        >
-        using time_point = chrono::time_point<Clock, Duration>;
+    static duration zero() { return duration(); }
 
-        using system_clock   = chrono::system_clock;
-        using high_res_clock = chrono::high_resolution_clock;
-        using steady_clock   = chrono::steady_clock;
+  public:
+    bool operator>=(const duration &rhs) const { return m_duration >= rhs.m_duration; }
+    bool operator>(const duration &rhs) const { return m_duration > rhs.m_duration; }
+    bool operator==(const duration &rhs) const { return m_duration == rhs.m_duration; }
+    bool operator<=(const duration &rhs) const { return m_duration <= rhs.m_duration; }
+    bool operator<(const duration &rhs) const { return m_duration < rhs.m_duration; }
 
+    void operator*=(const double mult) { m_duration *= mult; }
+    void operator+=(const duration &rhs) { m_duration += rhs.m_duration; }
+    void operator-=(const duration &rhs) { m_duration -= rhs.m_duration; }
 
-        uint64_t get_timestamp_us();
+    duration operator+(const duration &rhs) const { return duration(m_duration + rhs.m_duration); }
+    duration operator-(const duration &rhs) const { return duration(m_duration - rhs.m_duration); }
 
+  private:
+    uint64_t m_duration;
+};
 
-        inline long long to_microseconds(const steady_clock::duration& t)
-        {
-            return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
-        }
+template <class _Clock> class time_point;
 
+class steady_clock
+{
+    // Mapping to rdtsc
 
-        inline long long to_microseconds(const steady_clock::time_point tp)
-        {
-            return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
-        }
+  public:
+    using duration = duration;
 
+  public:
+    static time_point<steady_clock> now();
+};
 
-        inline long long to_milliseconds(const steady_clock::duration &t)
-        {
-            return std::chrono::duration_cast<std::chrono::milliseconds>(t).count();
-        }
+template <class _Clock> class time_point
+{ // represents a point in time
 
+  public:
+    time_point()
+        : m_timestamp(0)
+    {
+    }
 
-        inline steady_clock::duration from_microseconds(long t_us)
-        {
-            return std::chrono::microseconds(t_us);
-        }
+    time_point(uint64_t tp)
+        : m_timestamp(tp)
+    {
+    }
 
+  public:
+    bool operator<(const time_point<_Clock> &rhs) const { return m_timestamp < rhs.m_timestamp; }
 
-        inline steady_clock::duration from_milliseconds(long t_ms) { return std::chrono::milliseconds(t_ms); }
+    bool operator<=(const time_point<_Clock> &rhs) const { return m_timestamp <= rhs.m_timestamp; }
 
-        inline steady_clock::duration from_seconds(long t_s)
-        {
-            return std::chrono::seconds(t_s);
-        }
+    bool operator==(const time_point<_Clock> &rhs) const { return m_timestamp == rhs.m_timestamp; }
 
+    bool operator>=(const time_point<_Clock> &rhs) const { return m_timestamp >= rhs.m_timestamp; }
 
-        template<
-            class Clock,
-            class Duration = typename Clock::duration
-        >
-        inline bool is_zero(const time_point<Clock, Duration> &tp)
-        {
-            return tp.time_since_epoch() == Clock::duration::zero();
-        }
+    bool operator>(const time_point<_Clock> &rhs) const { return m_timestamp > rhs.m_timestamp; }
 
-#else
+    duration operator-(const time_point<steady_clock> &rhs) const { return duration(m_timestamp < rhs.m_timestamp); }
 
+    time_point operator+(const duration &rhs) const { return time_point(m_timestamp + rhs.count()); }
 
-        class duration
-        {
+  private:
+    uint64_t m_timestamp;
+};
 
-        public:
+long long to_microseconds(const steady_clock::duration &t);
 
-            duration()
-                : m_duration(0)
-            {}
-
-            duration(uint64_t d)
-                : m_duration(d)
-            {}
-
-        public:
-
-            uint64_t count() const { return m_duration; }
-
-            static duration zero() { return duration(); }
-
-        public:
-
-            bool operator>=(const duration& rhs) const { return m_duration >= rhs.m_duration; }
-            bool operator>(const duration& rhs) const { return m_duration > rhs.m_duration; }
-            bool operator==(const duration& rhs) const { return m_duration == rhs.m_duration; }
-            bool operator<=(const duration& rhs) const { return m_duration <= rhs.m_duration; }
-            bool operator<(const duration& rhs) const { return m_duration < rhs.m_duration; }
-
-            void operator*=(const double mult) { m_duration *= mult; }
-            void operator+=(const duration& rhs) { m_duration += rhs.m_duration; }
-            void operator-=(const duration& rhs) { m_duration -= rhs.m_duration; }
-
-
-            duration operator+(const duration& rhs) const { return duration(m_duration + rhs.m_duration); }
-            duration operator-(const duration& rhs) const { return duration(m_duration - rhs.m_duration); }
-
-
-        private:
-
-            uint64_t m_duration;
-        };
-
-
-        template <class _Clock> class time_point;
-
-
-        class steady_clock
-        {
-            // Mapping to rdtsc
-
-        public:
-
-            using duration = duration;
-
-        public:
-
-            static time_point<steady_clock> now();
-
-        };
-
-
-        template <class _Clock>
-        class time_point
-        { // represents a point in time
-
-        public:
-
-            time_point()
-                : m_timestamp(0)
-            {}
-
-            time_point(uint64_t tp)
-                : m_timestamp(tp)
-            {}
-
-
-        public:
-
-            bool operator< (const time_point<_Clock>& rhs) const
-            {
-                return m_timestamp < rhs.m_timestamp;
-            }
-
-            bool operator<= (const time_point<_Clock>& rhs) const
-            {
-                return m_timestamp <= rhs.m_timestamp;
-            }
-
-            bool operator== (const time_point<_Clock>& rhs) const
-            {
-                return m_timestamp == rhs.m_timestamp;
-            }
-
-            bool operator>= (const time_point<_Clock>& rhs) const
-            {
-                return m_timestamp >= rhs.m_timestamp;
-            }
-
-            bool operator> (const time_point<_Clock>& rhs) const
-            {
-                return m_timestamp > rhs.m_timestamp;
-            }
-
-
-            duration operator- (const time_point<steady_clock>& rhs) const
-            {
-                return duration(m_timestamp < rhs.m_timestamp);
-            }
-
-
-            time_point operator+ (const duration& rhs) const
-            {
-                return time_point(m_timestamp + rhs.count());
-            }
-
-
-
-        private:
-
-            uint64_t m_timestamp;
-        };
-
-
-
-
-        long long to_microseconds(const steady_clock::duration& t);
-
-
-        steady_clock::duration from_microseconds(long t_us);
-
-
+steady_clock::duration from_microseconds(long t_us);
 
 #endif
 
+class SyncEvent
+{
 
-        class SyncEvent
-        {
+  public:
+    SyncEvent();
 
-        public:
+    ~SyncEvent();
 
-            SyncEvent();
+  public:
+    /// @return true  if condition occured
+    ///         false on timeout
+    bool wait_until(time_point<steady_clock> tp);
 
-            ~SyncEvent();
+    /// Can have spurious wake ups
+    /// @return true  if condition occured
+    ///         false on timeout
+    bool wait_for(steady_clock::duration timeout);
 
-        public:
+    void wake_up();
 
-            /// @return true  if condition occured
-            ///         false on timeout
-            bool wait_until(time_point<steady_clock> tp);
-
-            /// Can have spurious wake ups
-            /// @return true  if condition occured
-            ///         false on timeout
-            bool wait_for(steady_clock::duration timeout);
-
-            void wake_up();
-
-        private:
-
+  private:
 #ifdef USE_STL_CHRONO
-            mutex                       m_tick_lock;
-            condition_variable          m_tick_cond;
+    mutex              m_tick_lock;
+    condition_variable m_tick_cond;
 #else
-            pthread_cond_t              m_tick_cond;
-            pthread_mutex_t             m_tick_lock;
+    pthread_cond_t  m_tick_cond;
+    pthread_mutex_t m_tick_lock;
 #endif
-            time_point<steady_clock>    m_sched_time;
-        };
-
-
-    };
+    time_point<steady_clock> m_sched_time;
 };
 
 
 
+// Mutex section
+
+// Mutex for C++03 should call pthread init and destroy
+using Mutex = mutex;
 
 
+
+}; // namespace sync
+}; // namespace srt
