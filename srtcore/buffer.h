@@ -163,7 +163,7 @@ private:    // Constants
     static const int      INPUTRATE_INITIAL_BYTESPS = BW_INFINITE;
 
 private:
-   pthread_mutex_t m_BufLock;           // used to synchronize buffer operation
+   srt::sync::Mutex m_BufLock;           // used to synchronize buffer operation
 
    struct Block
    {
@@ -439,7 +439,7 @@ private:
 
    int m_iNotch;                        // the starting read point of the first unit
 
-   pthread_mutex_t m_BytesCountLock;    // used to protect counters operations
+   srt::sync::mutex m_BytesCountLock;    // used to protect counters operations
    int m_iBytesCount;                   // Number of payload bytes in the buffer
    int m_iAckedPktsCount;               // Number of acknowledged pkts in the buffer
    int m_iAckedBytesCount;              // Number of acknowledged payload bytes in the buffer

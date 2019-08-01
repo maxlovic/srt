@@ -714,22 +714,16 @@ private:
 private: // synchronization: mutexes and conditions
 
     using Mutex = srt::sync::Mutex;
-
-
     Mutex m_ConnectionLock;            // used to synchronize connection operation
-
-    srt::sync::SyncEvent m_SendBlockSync;       // used to block "send" call
-
     Mutex m_AckLock;                   // used to protected sender's loss list when processing ACK
-
-    srt::sync::SyncEvent m_RecvDataSync;
-
     Mutex m_SendLock;                  // used to synchronize "send" call
     Mutex m_RecvLock;                  // used to synchronize "recv" call
-
     Mutex m_RcvLossLock;               // Protects the receiver loss list (access: CRcvQueue::worker, CUDT::tsbpd)
-
     Mutex m_StatsLock;                 // used to synchronize access to trace statistics
+
+    srt::sync::SyncEvent m_RecvDataSync;
+    srt::sync::SyncEvent m_SendBlockSync;       // used to block "send" call
+
 
     void initSynch();
     void destroySynch();
