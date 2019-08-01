@@ -718,8 +718,7 @@ private: // synchronization: mutexes and conditions
 
     Mutex m_ConnectionLock;            // used to synchronize connection operation
 
-    pthread_cond_t m_SendBlockCond;              // used to block "send" call
-    pthread_mutex_t m_SendBlockLock;             // lock associated to m_SendBlockCond
+    srt::sync::SyncEvent m_SendBlockSync;       // used to block "send" call
 
     Mutex m_AckLock;                   // used to protected sender's loss list when processing ACK
 

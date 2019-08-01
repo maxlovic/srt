@@ -5357,12 +5357,10 @@ int CUDT::sendmsg2(const char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
 
         {
             // wait here during a blocking sending
-            CGuard sendblock_lock(m_SendBlockLock);
-
             if (m_iSndTimeOut < 0)
             {
                 while (stillConnected() && sndBuffersLeft() < minlen && m_bPeerHealth)
-                    pthread_cond_wait(&m_SendBlockCond, &m_SendBlockLock);
+                    m_SendBlockSync.wait_for(1s);
             }
             else
             {
@@ -5370,7 +5368,7 @@ int CUDT::sendmsg2(const char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
 
                 while (stillConnected() && sndBuffersLeft() < minlen && m_bPeerHealth && exptime > steady_clock::now())
                 {
-                    CTimer::condTimedWaitUS(&m_SendBlockCond, &m_SendBlockLock, m_iSndTimeOut * uint64_t(1000));
+                    m_SendBlockSync.wait_for(from_milliseconds(m_iSndTimeOut));
                 }
             }
         }
@@ -5752,10 +5750,8 @@ int64_t CUDT::sendfile(fstream &ifs, int64_t &offset, int64_t size, int block)
         unitsize = int((tosend >= block) ? block : tosend);
 
         {
-            CGuard lk(m_SendBlockLock);
-
             while (stillConnected() && (sndBuffersLeft() <= 0) && m_bPeerHealth)
-                pthread_cond_wait(&m_SendBlockCond, &m_SendBlockLock);
+                m_SendBlockSync.wait_for(1s);
         }
 
         if (m_bBroken || m_bClosing)
@@ -5920,7 +5916,7 @@ void CUDT::sample(CPerfMon *perf, bool clear)
     if (m_bBroken || m_bClosing)
         throw CUDTException(MJ_CONNECTION, MN_CONNLOST, 0);
 
-    UniqueLock                         statsLock(m_StatsLock);
+    UniqueLock                     statsLock(m_StatsLock);
     const steady_clock::time_point currtime = steady_clock::now();
     perf->msTimeStamp                       = to_milliseconds(currtime - m_stats.startTime);
 
@@ -6316,25 +6312,16 @@ if (!(callcnt++ % 250)) cerr << "SndPeriod=" << (m_ullInterval_tk/m_ullCPUFreque
 
 void CUDT::initSynch()
 {
-    pthread_mutex_init(&m_SendBlockLock, NULL);
-    pthread_cond_init(&m_SendBlockCond, NULL);
-
     memset(&m_RcvTsbPdThread, 0, sizeof m_RcvTsbPdThread);
 }
 
 void CUDT::destroySynch()
 {
-    pthread_mutex_destroy(&m_SendBlockLock);
-    pthread_cond_destroy(&m_SendBlockCond);
 }
 
 void CUDT::releaseSynch()
 {
     // wake up user calls
-    pthread_mutex_lock(&m_SendBlockLock);
-    pthread_cond_signal(&m_SendBlockCond);
-    pthread_mutex_unlock(&m_SendBlockLock);
-
     m_SendLock.lock();
     m_SendLock.unlock();
 
@@ -6821,8 +6808,7 @@ void CUDT::processCtrl(CPacket &ctrlpkt)
         LockGuard::leaveCS(m_AckLock);
         if (m_bSynSending)
         {
-            CGuard lk(m_SendBlockLock);
-            pthread_cond_signal(&m_SendBlockCond);
+            m_SendBlockSync.wake_up();
         }
 
         // acknowledde any waiting epolls to write
@@ -8004,8 +7990,8 @@ int CUDT::processData(CUnit *unit)
 /// This value can be set in options - SRT_LOSSMAXTTL.
 void CUDT::unlose(const CPacket &packet)
 {
-    UniqueLock  lg(m_RcvLossLock);
-    int32_t sequence = packet.m_iSeqNo;
+    UniqueLock lg(m_RcvLossLock);
+    int32_t    sequence = packet.m_iSeqNo;
     m_pRcvLossList->remove(sequence);
 
     // Rest of this code concerns only the "belated lossreport" feature.
