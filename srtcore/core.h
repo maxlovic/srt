@@ -718,8 +718,7 @@ private: // synchronization: mutexes and conditions
 
     pthread_mutex_t m_AckLock;                   // used to protected sender's loss list when processing ACK
 
-    pthread_cond_t m_RecvDataCond;               // used to block "recv" when there is no data
-    pthread_mutex_t m_RecvDataLock;              // lock associated to m_RecvDataCond
+    srt::timing::Timer m_RecvDataSync;
 
     pthread_mutex_t m_SendLock;                  // used to synchronize "send" call
     pthread_mutex_t m_RecvLock;                  // used to synchronize "recv" call

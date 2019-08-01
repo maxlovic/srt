@@ -192,7 +192,7 @@ srt::timing::Timer::~Timer()
 {}
 
 
-void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
+bool srt::timing::Timer::wait_until(time_point<steady_clock> tp)
 {
     // TODO: Add busy waiting
 
@@ -201,9 +201,16 @@ void srt::timing::Timer::wait_until(time_point<steady_clock> tp)
     //    << std::chrono::duration_cast<std::chrono::microseconds>(tp - steady_clock::now()).count() << " us");
     std::unique_lock<std::mutex> lk(m_tick_lock);
     m_sched_time = tp;
-    m_tick_cond.wait_until(lk, tp, [this]() { return m_sched_time <= steady_clock::now(); });
+    return m_tick_cond.wait_until(lk, tp, [this]() { return m_sched_time <= steady_clock::now(); });
+}
 
-    //LOGC(dlog.Note, log << "Timer::wait_until - woke up");
+
+bool srt::timing::Timer::wait_for(steady_clock::duration timeout)
+{
+    std::unique_lock<std::mutex> lk(m_tick_lock);
+    return m_tick_cond.wait_for(lk, timeout) != cv_status::timeout;
+
+    //wait_until(steady_clock::now() + timeout);
 }
 
 

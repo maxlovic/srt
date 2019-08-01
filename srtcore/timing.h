@@ -246,7 +246,14 @@ namespace srt
 
         public:
 
-            void wait_until(time_point<steady_clock> tp);
+            /// @return true  if condition occured
+            ///         false on timeout
+            bool wait_until(time_point<steady_clock> tp);
+
+            /// Can have spurious wake ups
+            /// @return true  if condition occured
+            ///         false on timeout
+            bool wait_for(steady_clock::duration timeout);
 
             void wake_up();
 
