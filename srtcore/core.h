@@ -528,6 +528,7 @@ private: // Identification
 private:
 
     using steady_clock = srt::timing::steady_clock;
+    using SyncEvent = srt::timing::SyncEvent;
 
 #ifdef SRT_ENABLE_CONNTIMEO
     steady_clock::duration m_ConnTimeOut;                          // connect timeout in milliseconds
@@ -692,7 +693,7 @@ private: // Receiving related data
 
     bool m_bTsbPd;                               // Peer sends TimeStamp-Based Packet Delivery Packets 
     pthread_t m_RcvTsbPdThread;                  // Rcv TsbPD Thread handle
-    pthread_cond_t m_RcvTsbPdCond;
+    SyncEvent m_RcvTSBPDSync;                   // TSBPD signals if reading is ready
     bool m_bTsbPdAckWakeup;                      // Signal TsbPd thread on Ack sent
 
     CallbackHolder<srt_listen_callback_fn> m_cbAcceptHook;
