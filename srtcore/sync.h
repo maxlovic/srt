@@ -30,6 +30,10 @@
 
 #include "utilities.h"
 
+
+struct CUDTException;
+
+
 namespace srt
 {
 namespace sync
@@ -201,6 +205,17 @@ class InvertedLock
         LockGuard::enterCS(*m_pMutex);
     }
 };
+
+
+
+struct ThreadLocal
+{
+    static void set(CUDTException *e);
+
+    static CUDTException *get();
+};
+
+
 
 class SyncEvent
 {

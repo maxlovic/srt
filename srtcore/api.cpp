@@ -73,6 +73,7 @@ using namespace srt::sync;
 extern LogConfig srt_logger_config;
 
 
+
 CUDTSocket::CUDTSocket():
 m_Status(SRTS_INIT),
 m_iIPversion(0),
@@ -117,7 +118,6 @@ m_Sockets(),
 m_ControlLock(),
 m_IDLock(),
 m_SocketIDGenerator(0),
-m_TLSError(),
 m_mMultiplexer(),
 m_MultiplexerLock(),
 m_pCache(NULL),
@@ -138,8 +138,6 @@ m_ClosedSockets()
    srand((unsigned int)t.tv_usec);
    m_SocketIDGenerator = 1 + (int)((1 << 30) * (double(rand()) / RAND_MAX));
 
-   pthread_key_create(&m_TLSError, TLSDestroy);
-
    m_pCache = new CCache<CInfoBlock>;
 }
 
@@ -153,8 +151,6 @@ CUDTUnited::~CUDTUnited()
         cleanup();
     }
 
-    delete (CUDTException*)pthread_getspecific(m_TLSError);
-    pthread_key_delete(m_TLSError);
 
     delete m_pCache;
 }
@@ -1610,15 +1606,17 @@ void CUDTUnited::removeSocket(const SRTSOCKET u)
 
 void CUDTUnited::setError(CUDTException* e)
 {
-    delete (CUDTException*)pthread_getspecific(m_TLSError);
-    pthread_setspecific(m_TLSError, e);
+    srt::sync::ThreadLocal::set(e);
+    //delete (CUDTException*)pthread_getspecific(m_TLSError);
+    //pthread_setspecific(m_TLSError, e);
 }
 
 CUDTException* CUDTUnited::getError()
 {
-    if(!pthread_getspecific(m_TLSError))
-        pthread_setspecific(m_TLSError, new CUDTException);
-    return (CUDTException*)pthread_getspecific(m_TLSError);
+    return srt::sync::ThreadLocal::get();
+    //if(!pthread_getspecific(m_TLSError))
+    //    pthread_setspecific(m_TLSError, new CUDTException);
+    //return (CUDTException*)pthread_getspecific(m_TLSError);
 }
 
 

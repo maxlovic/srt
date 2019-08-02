@@ -1,5 +1,6 @@
 ﻿#include "sync.h"
 #include "logging.h"
+#include "udt.h"
 
 namespace srt_logging
 {
@@ -182,6 +183,20 @@ srt::sync::steady_clock::duration srt::sync::from_microseconds(long t_us)
 
 
 #ifdef USE_STL_CHRONO
+
+
+static thread_local CUDTException *s_tls_object = nullptr;
+
+
+void srt::sync::ThreadLocal::set(CUDTException *e)
+{
+    if (s_tls_object)
+        delete s_tls_object;
+    s_tls_object = e;
+}
+
+CUDTException *srt::sync::ThreadLocal::get() { return s_tls_object; }
+
 
 
 srt::sync::SyncEvent::SyncEvent()

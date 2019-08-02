@@ -397,7 +397,7 @@ public:
 
 private:
    static void* worker(void* param);
-   pthread_t m_WorkerThread;
+   srt::sync::Thread m_WorkerThread;
 
 
 private:
@@ -467,7 +467,7 @@ public:
 
 private:
    static void* worker(void* param);
-   pthread_t m_WorkerThread;
+   srt::sync::Thread m_WorkerThread;
    // Subroutines of worker
    EReadStatus worker_RetrieveUnit(ref_t<int32_t> id, ref_t<CUnit*> unit, sockaddr* sa);
    EConnectStatus worker_ProcessConnectionRequest(CUnit* unit, const sockaddr* sa);
@@ -484,7 +484,6 @@ private:
    int m_iPayloadSize;                  // packet payload size
 
    volatile bool m_bClosing;            // closing the worker
-   pthread_cond_t m_ExitCond;
 
 private:
 

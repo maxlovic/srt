@@ -121,6 +121,7 @@ private:
 
 ////////////////////////////////////////////////////////////////////////////////
 
+
 class CUDTUnited
 {
 friend class CUDT;
@@ -219,8 +220,10 @@ private:
    std::map<int64_t, std::set<SRTSOCKET> > m_PeerRec;// record sockets from peers to avoid repeated connection request, int64_t = (socker_id << 30) + isn
 
 private:
-   pthread_key_t m_TLSError;                         // thread local error record (last error)
-   static void TLSDestroy(void* e) {if (NULL != e) delete (CUDTException*)e;}
+
+
+   //srt::sync::ThreadLocal<CUDTException> m_TLSError; // thread local error record (last error)
+   //static void TLSDestroy(void* e) {if (NULL != e) delete (CUDTException*)e;}
 
 private:
    void connect_complete(const SRTSOCKET u);
