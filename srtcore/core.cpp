@@ -4501,12 +4501,15 @@ void *CUDT::tsbpd(void *param)
              * Schedule wakeup when it will be.
              */
             self->m_bTsbPdAckWakeup = false;
+            LockGuard::leaveCS(self->m_RecvLock);
+
             THREAD_PAUSED();
             HLOGC(tslog.Debug,
                   log << self->CONID() << "tsbpd: FUTURE PACKET seq=" << current_pkt_seq
                       << " T=" << FormatTime(tsbpdtime) << " - waiting " << to_milliseconds(timediff) << "ms");
             self->m_RcvTSBPDSync.wait_for(timediff);
             THREAD_RESUMED();
+            LockGuard::enterCS(self->m_RecvLock);
         }
         else
         {
@@ -4524,7 +4527,9 @@ void *CUDT::tsbpd(void *param)
             HLOGC(tslog.Debug, log << self->CONID() << "tsbpd: no data, scheduling wakeup at ack");
             self->m_bTsbPdAckWakeup = true;
             THREAD_PAUSED();
+            LockGuard::leaveCS(self->m_RecvLock);
             self->m_RcvTSBPDSync.wait_for(1s);
+            LockGuard::enterCS(self->m_RecvLock);
             THREAD_RESUMED();
         }
     }
