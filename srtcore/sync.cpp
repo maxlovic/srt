@@ -1,4 +1,4 @@
-﻿#include "timing.h"
+﻿#include "sync.h"
 #include "logging.h"
 
 namespace srt_logging
@@ -29,7 +29,7 @@ namespace srt_logging
 
 namespace srt
 {
-    namespace timing
+    namespace sync
     {
 
         uint64_t get_cpu_frequency()

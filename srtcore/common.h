@@ -69,7 +69,7 @@ modified by
 
 #include "udt.h"
 #include "utilities.h"
-#include "timing.h"
+#include "sync.h"
 
 
 #ifdef _DEBUG
