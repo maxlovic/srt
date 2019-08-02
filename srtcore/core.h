@@ -692,7 +692,7 @@ private: // Receiving related data
     uint32_t m_lPeerSrtVersion;
 
     bool m_bTsbPd;                               // Peer sends TimeStamp-Based Packet Delivery Packets 
-    pthread_t m_RcvTsbPdThread;                  // Rcv TsbPD Thread handle
+    srt::sync::Thread m_RcvTsbPdThread;                  // Rcv TsbPD Thread handle
     SyncEvent m_RcvTSBPDSync;                   // TSBPD signals if reading is ready
     bool m_bTsbPdAckWakeup;                      // Signal TsbPd thread on Ack sent
 

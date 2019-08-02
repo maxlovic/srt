@@ -455,8 +455,7 @@ m_WorkerThread(),
 m_pSndUList(NULL),
 m_pChannel(NULL),
 m_pTimer(NULL),
-m_bClosing(false),
-m_ExitCond()
+m_bClosing(false)
 {
 }
 

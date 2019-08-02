@@ -172,6 +172,7 @@ steady_clock::duration from_microseconds(long t_us);
 // Mutex for C++03 should call pthread init and destroy
 using Mutex      = mutex;
 using UniqueLock = unique_lock<mutex>;
+using Thread = thread;
 
 
 struct LockGuard

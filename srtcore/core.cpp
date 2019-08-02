@@ -5035,12 +5035,13 @@ bool CUDT::close()
         m_bConnected = false;
     }
 
-    if (m_bTsbPd && !pthread_equal(m_RcvTsbPdThread, pthread_t()))
+    if (m_bTsbPd && m_RcvTsbPdThread.joinable())
     {
         HLOGC(mglog.Debug, log << "CLOSING, joining TSBPD thread...");
-        void *retval;
-        int ret SRT_ATR_UNUSED = pthread_join(m_RcvTsbPdThread, &retval);
-        HLOGC(mglog.Debug, log << "... " << (ret == 0 ? "SUCCEEDED" : "FAILED"));
+        //void *retval;
+        //int ret SRT_ATR_UNUSED = pthread_join(m_RcvTsbPdThread, &retval);
+        //HLOGC(mglog.Debug, log << "... " << (ret == 0 ? "SUCCEEDED" : "FAILED"));
+        m_RcvTsbPdThread.join();
     }
 
     HLOGC(mglog.Debug, log << "CLOSING, joining send/receive threads");
@@ -6331,10 +6332,10 @@ void CUDT::releaseSynch()
     m_RcvTSBPDSync.notify_one();
     LockGuard::leaveCS(m_RecvLock);
 
-    if (!pthread_equal(m_RcvTsbPdThread, pthread_t()))
+    if (m_RcvTsbPdThread.joinable())
     {
-        pthread_join(m_RcvTsbPdThread, NULL);
-        m_RcvTsbPdThread = pthread_t();
+        m_RcvTsbPdThread.join();
+        m_RcvTsbPdThread = Thread();
     }
 
     m_RecvLock.lock();
@@ -7596,13 +7597,13 @@ int CUDT::processData(CUnit *unit)
     m_lastRspTime = srt::sync::steady_clock::now();
 
     // We are receiving data, start tsbpd thread if TsbPd is enabled
-    if (m_bTsbPd && pthread_equal(m_RcvTsbPdThread, pthread_t()))
+    if (m_bTsbPd && !m_RcvTsbPdThread.joinable())
     {
         HLOGP(mglog.Debug, "Spawning TSBPD thread");
         int st = 0;
         {
             ThreadName tn("SRT:TsbPd");
-            st = pthread_create(&m_RcvTsbPdThread, NULL, CUDT::tsbpd, this);
+            m_RcvTsbPdThread = Thread(CUDT::tsbpd, this);
         }
         if (st != 0)
             return -1;

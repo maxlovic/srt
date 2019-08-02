@@ -407,7 +407,6 @@ private:
    srt::sync::SyncEvent  m_WindowSync;
 
    volatile bool m_bClosing;		// closing the worker
-   pthread_cond_t m_ExitCond;
 
 #if defined(SRT_DEBUG_SNDQ_HIGHRATE)//>>debug high freq worker
    uint64_t m_ullDbgPeriod;
