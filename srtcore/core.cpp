@@ -4385,7 +4385,6 @@ void *CUDT::tsbpd(void *param)
 
     THREAD_STATE_INIT("SRT:TsbPd");
 
-    self->m_RecvLock.lock();
     LockGuard::enterCS(self->m_RecvLock);
     self->m_bTsbPdAckWakeup = true;
     while (!self->m_bClosing)
