@@ -418,6 +418,8 @@ if (${ENABLE_PROFILE} AND HAVE_COMPILER_GNU_COMPAT)
 	link_libraries(-g -pg)
 endif()
 
+
+if (NOT ENABLE_CXX11)
 if (PTHREAD_LIBRARY AND PTHREAD_INCLUDE_DIR)
 	message(STATUS "Pthread library: ${PTHREAD_LIBRARY}")
 	message(STATUS "Pthread include dir: ${PTHREAD_INCLUDE_DIR}")
@@ -440,6 +442,7 @@ else ()
 	find_package(Threads REQUIRED)
 	set(PTHREAD_LIBRARY ${CMAKE_THREAD_LIBS_INIT})
 endif()
+endif() # ENABLE_CXX11
 
 # This is required in some projects that add some other sources
 # to the SRT library to be compiled together (aka "virtual library").
@@ -598,6 +601,8 @@ endif()
 # So, back to target: srt. Setting the rest of the settings for srt target.
 # ---
 
+
+if (NOT ENABLE_CXX11)
 # Applying this to public includes is not transitive enough.
 # On Windows, apps require this as well, so it's safer to
 # spread this to all targets.
@@ -613,7 +618,7 @@ foreach(tar ${srtpack_libspec_common})
 	message(STATUS "ADDING TRANSITIVE LINK DEP to:${tar} : ${PTHREAD_LIBRARY} ${dep}")
 	target_link_libraries (${tar} PUBLIC ${PTHREAD_LIBRARY} ${dep})
 endforeach()
-
+endif()
 
 set (SRT_LIBS_PRIVATE ${SRT_LIBS_PRIVATE} ${PTHREAD_LIBRARY})
 

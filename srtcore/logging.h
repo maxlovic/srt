@@ -130,7 +130,7 @@ private:
     static const size_t MAX_PREFIX_SIZE = 32;
     char prefix[MAX_PREFIX_SIZE+1];
     LogConfig* src_config;
-    pthread_mutex_t mutex;
+    //srt::sync::Mutex mutex;
 
     bool isset(int flg) { return (src_config->flags & flg) != 0; }
 
@@ -157,12 +157,10 @@ public:
             strcat(prefix, ":");
             strcat(prefix, logger_pfx);
         }
-        pthread_mutex_init(&mutex, 0);
     }
 
     ~LogDispatcher()
     {
-        pthread_mutex_destroy(&mutex);
     }
 
     bool CheckEnabled();
