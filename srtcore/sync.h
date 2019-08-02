@@ -165,15 +165,12 @@ steady_clock::duration from_microseconds(long t_us);
 
 #endif
 
-
-
 // Mutex section
 
 // Mutex for C++03 should call pthread init and destroy
 using Mutex      = mutex;
 using UniqueLock = unique_lock<mutex>;
-using Thread = thread;
-
+using Thread     = thread;
 
 struct LockGuard
 {
@@ -181,14 +178,13 @@ struct LockGuard
     static void leaveCS(Mutex &m) { return m.unlock(); }
 };
 
-
+inline void SleepFor(const steady_clock::duration &t) { this_thread::sleep_for(t); }
 
 class InvertedLock
 {
     Mutex *m_pMutex;
 
   public:
-
     InvertedLock(Mutex *m)
         : m_pMutex(m)
     {
@@ -215,8 +211,7 @@ class SyncEvent
     ~SyncEvent();
 
   public:
-
-      Mutex &mutex() { return m_tick_lock; }
+    Mutex &mutex() { return m_tick_lock; }
 
   public:
     /// @return true  if condition occured
@@ -245,7 +240,7 @@ class SyncEvent
     time_point<steady_clock> m_sched_time;
 };
 
-
+static SyncEvent s_SyncEvent;
 
 }; // namespace sync
 }; // namespace srt

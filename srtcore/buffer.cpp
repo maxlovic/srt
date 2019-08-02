@@ -474,7 +474,7 @@ void CSndBuffer::ackData(int offset)
    updAvgBufSize(steady_clock::now());
 #endif
 
-   CTimer::triggerEvent();
+   s_SyncEvent.notify_all();
 }
 
 int CSndBuffer::getCurrBufSize() const
@@ -879,7 +879,7 @@ void CRcvBuffer::ackData(int len)
    if (m_iMaxPos < 0)
       m_iMaxPos = 0;
 
-   CTimer::triggerEvent();
+   s_SyncEvent.notify_all();
 }
 
 void CRcvBuffer::skipData(int len)

@@ -28,16 +28,13 @@ written by
 #else
 #include <sys/time.h>
 #endif
-#include <pthread.h>
-#if HAVE_CXX11
-#include <mutex>
-#endif
 
 #include "srt.h"
 #include "utilities.h"
 #include "threadname.h"
 #include "logging_api.h"
 #include "srt_compat.h"
+#include "sync.h"
 
 #ifdef __GNUC__
 #define PRINTF_LIKE __attribute__((format(printf,2,3)))
@@ -101,7 +98,7 @@ struct LogConfig
     std::ostream* log_stream;
     SRT_LOG_HANDLER_FN* loghandler_fn;
     void* loghandler_opaque;
-    pthread_mutex_t mutex;
+    srt::sync::Mutex mutex;
     int flags;
 
     LogConfig(const fa_bitset_t& initial_fa):
@@ -109,21 +106,18 @@ struct LogConfig
         max_level(LogLevel::warning),
         log_stream(&std::cerr)
     {
-        pthread_mutex_init(&mutex, 0);
     }
     LogConfig(const fa_bitset_t& efa, LogLevel::type l, std::ostream* ls):
         enabled_fa(efa), max_level(l), log_stream(ls)
     {
-        pthread_mutex_init(&mutex, 0);
     }
 
     ~LogConfig()
     {
-        pthread_mutex_destroy(&mutex);
     }
 
-    void lock() { pthread_mutex_lock(&mutex); }
-    void unlock() { pthread_mutex_unlock(&mutex); }
+    void lock() { mutex.lock(); }
+    void unlock() { mutex.unlock(); }
 };
 
 // The LogDispatcher class represents the object that is responsible for

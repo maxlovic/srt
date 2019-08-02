@@ -509,7 +509,7 @@ int CEPoll::wait(const int eid, set<SRTSOCKET>* readfds, set<SRTSOCKET>* writefd
       if ((msTimeOut >= 0) && (to_microseconds(steady_clock::now() - entertime) >= msTimeOut * int64_t(1000)))
          throw CUDTException(MJ_AGAIN, MN_XMTIMEOUT, 0);
 
-      CTimer::waitForEvent();
+      s_SyncEvent.wait_for(10ms);
    }
 
    return 0;

@@ -455,8 +455,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
 
    // acknowledge users waiting for new connections on the listening socket
    m_EPoll.update_events(listen, ls->m_pUDT->m_sPollID, UDT_EPOLL_IN, true);
-
-   CTimer::triggerEvent();
+   s_SyncEvent.notify_all();
 
    ERR_ROLLBACK:
    // XXX the exact value of 'error' is ignored
@@ -950,8 +949,7 @@ int CUDTUnited::close(const SRTSOCKET u)
        m_Sockets.erase(s->m_SocketID);
        m_ClosedSockets[s->m_SocketID] = s;
        HLOGC(mglog.Debug, log << "@" << u << "U::close: Socket MOVED TO CLOSED for collecting later.");
-
-       CTimer::triggerEvent();
+       s_SyncEvent.notify_all();
    }
 
    HLOGC(mglog.Debug, log << "%" << u << ": GLOBAL: CLOSING DONE");
@@ -1002,13 +1000,13 @@ int CUDTUnited::close(const SRTSOCKET u)
            }
 
            HLOGC(mglog.Debug, log << "@" << u << " GLOBAL CLOSING: ... still waiting for any update.");
-           CTimer::EWait wt = CTimer::waitForEvent();
-
-           if ( wt == CTimer::WT_ERROR )
-           {
-               HLOGC(mglog.Debug, log << "GLOBAL CLOSING: ... ERROR WHEN WAITING FOR EVENT. Exiting close() to prevent hangup.");
-               break;
-           }
+           s_SyncEvent.wait_for(10ms);
+           // TODO catch exception here
+           //if ( wt == CTimer::WT_ERROR )
+           //{
+           //    HLOGC(mglog.Debug, log << "GLOBAL CLOSING: ... ERROR WHEN WAITING FOR EVENT. Exiting close() to prevent hangup.");
+           //    break;
+           //}
 
            // Continue waiting in case when an event happened or 1s waiting time passed for checkpoint.
        }
@@ -1190,7 +1188,7 @@ int CUDTUnited::select(
       if (0 < count)
          break;
 
-      CTimer::waitForEvent();
+      s_SyncEvent.wait_for(10ms);
    } while (timeo > steady_clock::now() - entertime);
 
    if (readfds)
@@ -1273,7 +1271,7 @@ int CUDTUnited::selectEx(
       if (count > 0)
          break;
 
-      CTimer::waitForEvent();
+      s_SyncEvent.wait_for(10ms);
    } while (timeo > steady_clock::now() - entertime);
 
    return count;
@@ -1863,7 +1861,7 @@ void* CUDTUnited::garbageCollect(void* p)
       if (empty)
          break;
 
-      CTimer::sleep();
+      SleepFor(1ms);
    }
 
    THREAD_EXIT();
@@ -3061,32 +3059,32 @@ SRT_SOCKSTATUS getsockstate(SRTSOCKET u)
 
 void setloglevel(LogLevel::type ll)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.max_level = ll;
 }
 
 void addlogfa(LogFA fa)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.enabled_fa.set(fa, true);
 }
 
 void dellogfa(LogFA fa)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.enabled_fa.set(fa, false);
 }
 
 void resetlogfa(set<LogFA> fas)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     for (int i = 0; i <= SRT_LOGFA_LASTNONE; ++i)
         srt_logger_config.enabled_fa.set(i, fas.count(i));
 }
 
 void resetlogfa(const int* fara, size_t fara_size)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.enabled_fa.reset();
     for (const int* i = fara; i != fara + fara_size; ++i)
         srt_logger_config.enabled_fa.set(*i, true);
@@ -3094,20 +3092,20 @@ void resetlogfa(const int* fara, size_t fara_size)
 
 void setlogstream(std::ostream& stream)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.log_stream = &stream;
 }
 
 void setloghandler(void* opaque, SRT_LOG_HANDLER_FN* handler)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.loghandler_opaque = opaque;
     srt_logger_config.loghandler_fn = handler;
 }
 
 void setlogflags(int flags)
 {
-    CGuard gg(srt_logger_config.mutex);
+    UniqueLock gg(srt_logger_config.mutex);
     srt_logger_config.flags = flags;
 }
 
