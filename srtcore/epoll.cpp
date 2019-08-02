@@ -89,7 +89,7 @@ CEPoll::~CEPoll()
 
 int CEPoll::create()
 {
-   UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    int localid = 0;
 
@@ -124,7 +124,7 @@ ENOMEM: There was insufficient memory to create the kernel object.
 
 int CEPoll::add_usock(const int eid, const SRTSOCKET& u, const int* events)
 {
-    UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
    if (p == m_mPolls.end())
@@ -143,7 +143,7 @@ int CEPoll::add_usock(const int eid, const SRTSOCKET& u, const int* events)
 
 int CEPoll::add_ssock(const int eid, const SYSSOCKET& s, const int* events)
 {
-    UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
    if (p == m_mPolls.end())
@@ -211,7 +211,7 @@ int CEPoll::add_ssock(const int eid, const SYSSOCKET& s, const int* events)
 
 int CEPoll::remove_usock(const int eid, const SRTSOCKET& u)
 {
-    UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
    if (p == m_mPolls.end())
@@ -235,7 +235,7 @@ int CEPoll::remove_usock(const int eid, const SRTSOCKET& u)
 
 int CEPoll::remove_ssock(const int eid, const SYSSOCKET& s)
 {
-    UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
    if (p == m_mPolls.end())
@@ -266,7 +266,7 @@ int CEPoll::remove_ssock(const int eid, const SYSSOCKET& s)
 // Need this to atomically modify polled events (ex: remove write/keep read)
 int CEPoll::update_usock(const int eid, const SRTSOCKET& u, const int* events)
 {
-    UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
    if (p == m_mPolls.end())
@@ -305,7 +305,7 @@ int CEPoll::update_usock(const int eid, const SRTSOCKET& u, const int* events)
 
 int CEPoll::update_ssock(const int eid, const SYSSOCKET& s, const int* events)
 {
-    UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
    if (p == m_mPolls.end())
@@ -385,19 +385,19 @@ int CEPoll::wait(const int eid, set<SRTSOCKET>* readfds, set<SRTSOCKET>* writefd
    steady_clock::time_point entertime = steady_clock::now();
    while (true)
    {
-      LockGuard::enterCS(m_EPollLock);
+      CriticalSection::enter(m_EPollLock);
 
       map<int, CEPollDesc>::iterator p = m_mPolls.find(eid);
       if (p == m_mPolls.end())
       {
-         LockGuard::leaveCS(m_EPollLock);
+         CriticalSection::leave(m_EPollLock);
          throw CUDTException(MJ_NOTSUP, MN_EIDINVAL);
       }
 
       if (p->second.m_sUDTSocksIn.empty() && p->second.m_sUDTSocksOut.empty() && p->second.m_sLocals.empty() && (msTimeOut < 0))
       {
          // no socket is being monitored, this may be a deadlock
-         LockGuard::leaveCS(m_EPollLock);
+         CriticalSection::leave(m_EPollLock);
          throw CUDTException(MJ_NOTSUP, MN_INVAL);
       }
 
@@ -501,7 +501,7 @@ int CEPoll::wait(const int eid, set<SRTSOCKET>* readfds, set<SRTSOCKET>* writefd
          #endif
       }
 
-      LockGuard::leaveCS(m_EPollLock);
+      CriticalSection::leave(m_EPollLock);
 
       if (total > 0)
          return total;
@@ -517,7 +517,7 @@ int CEPoll::wait(const int eid, set<SRTSOCKET>* readfds, set<SRTSOCKET>* writefd
 
 int CEPoll::release(const int eid)
 {
-   UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator i = m_mPolls.find(eid);
    if (i == m_mPolls.end())
@@ -554,7 +554,7 @@ void update_epoll_sets(const SRTSOCKET& uid, const set<SRTSOCKET>& watch, set<SR
 
 int CEPoll::update_events(const SRTSOCKET& uid, std::set<int>& eids, int events, bool enable)
 {
-   UniqueLock pg(m_EPollLock);
+   ScopedLock pg(m_EPollLock);
 
    map<int, CEPollDesc>::iterator p;
 

@@ -167,7 +167,7 @@ std::string CUDTUnited::CONID(SRTSOCKET sock)
 
 int CUDTUnited::startup()
 {
-   UniqueLock gcinit(m_InitLock);
+   ScopedLock gcinit(m_InitLock);
 
    if (m_iInstanceCount++ > 0)
       return 0;
@@ -200,7 +200,7 @@ int CUDTUnited::startup()
 
 int CUDTUnited::cleanup()
 {
-    UniqueLock gcinit(m_InitLock);
+   ScopedLock lock_init(m_InitLock);
 
    if (--m_iInstanceCount > 0)
       return 0;
@@ -253,9 +253,9 @@ SRTSOCKET CUDTUnited::newSocket(int af, int)
       throw CUDTException(MJ_SYSTEMRES, MN_MEMORY, 0);
    }
 
-   LockGuard::enterCS(m_IDLock);
+   CriticalSection::enter(m_IDLock);
    ns->m_SocketID = -- m_SocketIDGenerator;
-   LockGuard::leaveCS(m_IDLock);
+   CriticalSection::leave(m_IDLock);
 
    ns->m_Status = SRTS_INIT;
    ns->m_ListenSocket = 0;
@@ -269,7 +269,7 @@ SRTSOCKET CUDTUnited::newSocket(int af, int)
    ns->m_pUDT->m_pCache = m_pCache;
 
    // protect the m_Sockets structure.
-   LockGuard::enterCS(m_ControlLock);
+   CriticalSection::enter(m_ControlLock);
    try
    {
       HLOGC(mglog.Debug, log << CONID(ns->m_SocketID)
@@ -280,11 +280,11 @@ SRTSOCKET CUDTUnited::newSocket(int af, int)
    catch (...)
    {
       //failure and rollback
-      LockGuard::leaveCS(m_ControlLock);
+      CriticalSection::leave(m_ControlLock);
       delete ns;
       ns = NULL;
    }
-   LockGuard::leaveCS(m_ControlLock);
+   CriticalSection::leave(m_ControlLock);
 
    if (!ns)
       throw CUDTException(MJ_SYSTEMRES, MN_MEMORY, 0);
@@ -314,10 +314,10 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
          ns->m_Status = SRTS_CLOSED;
          ns->m_ClosureTimeStamp = steady_clock::now();
 
-         LockGuard::enterCS(ls->m_AcceptSync.mutex());
+         CriticalSection::enter(ls->m_AcceptSync.mutex());
          ls->m_pQueuedSockets->erase(ns->m_SocketID);
          ls->m_pAcceptSockets->erase(ns->m_SocketID);
-         LockGuard::leaveCS(ls->m_AcceptSync.mutex());
+         CriticalSection::leave(ls->m_AcceptSync.mutex());
       }
       else
       {
@@ -369,10 +369,10 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
       return -1;
    }
 
-   LockGuard::enterCS(m_IDLock);
+   CriticalSection::enter(m_IDLock);
    ns->m_SocketID = -- m_SocketIDGenerator;
    HLOGF(mglog.Debug, "newConnection: generated socket id %d", ns->m_SocketID);
-   LockGuard::leaveCS(m_IDLock);
+   CriticalSection::leave(m_IDLock);
 
    ns->m_ListenSocket = listen;
    ns->m_iIPversion = ls->m_iIPversion;
@@ -397,7 +397,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
                "newConnection: incoming %s, mapping socket %d",
                SockaddrToString(peer).c_str(), ns->m_SocketID);
        {
-           UniqueLock cg(m_ControlLock);
+           ScopedLock cg(m_ControlLock);
            m_Sockets[ns->m_SocketID] = ns;
        }
 
@@ -427,7 +427,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
    CIPAddress::pton(ns->m_pSelfAddr, ns->m_pUDT->m_piSelfIP, ns->m_iIPversion);
 
    // protect the m_Sockets structure.
-   LockGuard::enterCS(m_ControlLock);
+   CriticalSection::enter(m_ControlLock);
    try
    {
        HLOGF(mglog.Debug, 
@@ -439,9 +439,9 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
    {
       error = 2;
    }
-   LockGuard::leaveCS(m_ControlLock);
+   CriticalSection::leave(m_ControlLock);
 
-   LockGuard::enterCS(ls->m_AcceptSync.mutex());
+   CriticalSection::enter(ls->m_AcceptSync.mutex());
    try
    {
       ls->m_pQueuedSockets->insert(ns->m_SocketID);
@@ -450,7 +450,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
    {
       error = 3;
    }
-   LockGuard::leaveCS(ls->m_AcceptSync.mutex());
+   CriticalSection::leave(ls->m_AcceptSync.mutex());
 
    // acknowledge users waiting for new connections on the listening socket
    m_EPoll.update_events(listen, ls->m_pUDT->m_sPollID, UDT_EPOLL_IN, true);
@@ -474,7 +474,7 @@ int CUDTUnited::newConnection(const SRTSOCKET listen, const sockaddr* peer, CHan
       // connect() in UDT code) may fail, in which case this socket should not be
       // further processed and should be removed.
       {
-          UniqueLock cg(m_ControlLock);
+          ScopedLock lock(m_ControlLock);
           m_Sockets.erase(id);
           m_ClosedSockets[id] = ns;
       }
@@ -508,7 +508,7 @@ int CUDTUnited::installAcceptHook(const SRTSOCKET lsn, srt_listen_callback_fn* h
 CUDT* CUDTUnited::lookup(const SRTSOCKET u)
 {
    // protects the m_Sockets structure
-   UniqueLock cg(m_ControlLock);
+   ScopedLock lock(m_ControlLock);
 
    map<SRTSOCKET, CUDTSocket*>::iterator i = m_Sockets.find(u);
 
@@ -521,7 +521,7 @@ CUDT* CUDTUnited::lookup(const SRTSOCKET u)
 SRT_SOCKSTATUS CUDTUnited::getStatus(const SRTSOCKET u)
 {
     // protects the m_Sockets structure
-    UniqueLock cg(m_ControlLock);
+    ScopedLock lock(m_ControlLock);
 
     map<SRTSOCKET, CUDTSocket*>::const_iterator i = m_Sockets.find(u);
 
@@ -553,7 +553,7 @@ int CUDTUnited::bind(const SRTSOCKET u, const sockaddr* name, int namelen)
    if (!s)
       throw CUDTException(MJ_NOTSUP, MN_SIDINVAL, 0);
 
-   UniqueLock cg(s->m_ControlLock);
+   ScopedLock lock(s->m_ControlLock);
 
    // cannot bind a socket more than once
    if (s->m_Status != SRTS_INIT)
@@ -587,7 +587,7 @@ int CUDTUnited::bind(SRTSOCKET u, UDPSOCKET udpsock)
    if (!s)
       throw CUDTException(MJ_NOTSUP, MN_SIDINVAL, 0);
 
-   UniqueLock cg(s->m_ControlLock);
+   ScopedLock lock(s->m_ControlLock);
 
    // cannot bind a socket more than once
    if (s->m_Status != SRTS_INIT)
@@ -636,7 +636,7 @@ int CUDTUnited::listen(const SRTSOCKET u, int backlog)
    if (!s)
       throw CUDTException(MJ_NOTSUP, MN_SIDINVAL, 0);
 
-   UniqueLock cg(s->m_ControlLock);
+   ScopedLock lock(s->m_ControlLock);
 
    // NOTE: since now the socket is protected against simultaneous access.
    // In the meantime the socket might have been closed, which means that
@@ -768,7 +768,7 @@ SRTSOCKET CUDTUnited::accept(const SRTSOCKET listen, sockaddr* addr, int* addrle
       if (s == NULL)
          throw CUDTException(MJ_NOTSUP, MN_SIDINVAL, 0);
 
-      UniqueLock cg(s->m_ControlLock);
+      ScopedLock lock(s->m_ControlLock);
 
       if (AF_INET == s->m_iIPversion)
          *addrlen = sizeof(sockaddr_in);
@@ -788,7 +788,7 @@ int CUDTUnited::connect(const SRTSOCKET u, const sockaddr* name, int namelen, in
    if (!s)
       throw CUDTException(MJ_NOTSUP, MN_SIDINVAL, 0);
 
-   UniqueLock cg(s->m_ControlLock);
+   ScopedLock lock(s->m_ControlLock);
 
    // XXX Consider translating this to using sockaddr_any,
    // this should take out all the "IP version check" things.
@@ -886,7 +886,7 @@ int CUDTUnited::close(const SRTSOCKET u)
 
    HLOGC(mglog.Debug, log << s->m_pUDT->CONID() << " CLOSE. Acquiring control lock");
 
-   UniqueLock socket_cg(s->m_ControlLock);
+   ScopedLock lock_socket_ctrl(s->m_ControlLock);
 
    HLOGC(mglog.Debug, log << s->m_pUDT->CONID() << " CLOSING (removing from listening, closing CUDT)");
 
@@ -911,7 +911,7 @@ int CUDTUnited::close(const SRTSOCKET u)
 
       HLOGC(mglog.Debug, log << s->m_pUDT->CONID() << " CLOSING (removing listener immediately)");
       {
-          UniqueLock cg(s->m_pUDT->m_ConnectionLock);
+          ScopedLock lock(s->m_pUDT->m_ConnectionLock);
           s->m_pUDT->m_bListening = false;
           s->m_pUDT->m_pRcvQueue->removeListener(s->m_pUDT);
       }
@@ -925,7 +925,7 @@ int CUDTUnited::close(const SRTSOCKET u)
 
        // synchronize with garbage collection.
        HLOGC(mglog.Debug, log << "@" << u << "U::close done. GLOBAL CLOSE: " << s->m_pUDT->CONID() << ". Acquiring GLOBAL control lock");
-       UniqueLock manager_cg(m_ControlLock);
+       ScopedLock lock_manager_control(m_ControlLock);
 
        // since "s" is located before m_ControlLock, locate it again in case
        // it became invalid
@@ -985,7 +985,7 @@ int CUDTUnited::close(const SRTSOCKET u)
            // Done the other way, but still done. You can stop waiting.
            bool isgone = false;
            {
-               UniqueLock manager_cg(m_ControlLock);
+               ScopedLock manager_lock(m_ControlLock);
                isgone = m_ClosedSockets.count(u) == 0;
            }
            if (!isgone)
@@ -1369,7 +1369,7 @@ int CUDTUnited::epoll_release(const int eid)
 
 CUDTSocket* CUDTUnited::locate(const SRTSOCKET u)
 {
-   UniqueLock cg(m_ControlLock);
+   ScopedLock lock(m_ControlLock);
 
    map<SRTSOCKET, CUDTSocket*>::iterator i = m_Sockets.find(u);
 
@@ -1384,7 +1384,7 @@ CUDTSocket* CUDTUnited::locate(
    const SRTSOCKET id,
    int32_t isn)
 {
-    UniqueLock cg(m_ControlLock);
+   ScopedLock lock(m_ControlLock);
 
    map<int64_t, set<SRTSOCKET> >::iterator i = m_PeerRec.find(
       CUDTSocket::getPeerSpec(id, isn));
@@ -1411,7 +1411,7 @@ CUDTSocket* CUDTUnited::locate(
 
 void CUDTUnited::checkBrokenSockets()
 {
-    UniqueLock cg(m_ControlLock);
+   ScopedLock lock(m_ControlLock);
 
    // set of sockets To Be Closed and To Be Removed
    vector<SRTSOCKET> tbc;
@@ -1468,10 +1468,10 @@ void CUDTUnited::checkBrokenSockets()
                continue;
          }
 
-         LockGuard::enterCS(ls->second->m_AcceptSync.mutex());
+         CriticalSection::enter(ls->second->m_AcceptSync.mutex());
          ls->second->m_pQueuedSockets->erase(s->m_SocketID);
          ls->second->m_pAcceptSockets->erase(s->m_SocketID);
-         LockGuard::leaveCS(ls->second->m_AcceptSync.mutex());
+         CriticalSection::leave(ls->second->m_AcceptSync.mutex());
       }
    }
 
@@ -1525,7 +1525,7 @@ void CUDTUnited::removeSocket(const SRTSOCKET u)
 
    if (i->second->m_pQueuedSockets)
    {
-       UniqueLock cg(i->second->m_AcceptSync.mutex());
+       ScopedLock cg(i->second->m_AcceptSync.mutex());
 
       // if it is a listener, close all un-accepted sockets in its queue
       // and remove them later
@@ -1623,7 +1623,7 @@ CUDTException* CUDTUnited::getError()
 void CUDTUnited::updateMux(
    CUDTSocket* s, const sockaddr* addr, const UDPSOCKET* udpsock)
 {
-   UniqueLock cg(m_ControlLock);
+   ScopedLock lock(m_ControlLock);
 
    if ((s->m_pUDT->m_bReuseAddr) && (addr))
    {
@@ -1775,7 +1775,7 @@ void CUDTUnited::updateMux(
 // socket.
 void CUDTUnited::updateListenerMux(CUDTSocket* s, const CUDTSocket* ls)
 {
-   UniqueLock cg(m_ControlLock);
+   ScopedLock lock(m_ControlLock);
 
    int port = (AF_INET == ls->m_iIPversion)
       ? ntohs(((sockaddr_in*)ls->m_pSelfAddr)->sin_port)
@@ -1816,7 +1816,7 @@ void* CUDTUnited::garbageCollect(void* p)
 
    // remove all sockets and multiplexers
    HLOGC(mglog.Debug, log << "GC: GLOBAL EXIT - releasing all pending sockets. Acquring control lock...");
-   LockGuard::enterCS(self->m_ControlLock);
+   CriticalSection::enter(self->m_ControlLock);
    for (map<SRTSOCKET, CUDTSocket*>::iterator i = self->m_Sockets.begin();
       i != self->m_Sockets.end(); ++ i)
    {
@@ -1836,10 +1836,10 @@ void* CUDTUnited::garbageCollect(void* p)
             continue;
       }
 
-      LockGuard::enterCS(ls->second->m_AcceptSync.mutex());
+      CriticalSection::enter(ls->second->m_AcceptSync.mutex());
       ls->second->m_pQueuedSockets->erase(i->second->m_SocketID);
       ls->second->m_pAcceptSockets->erase(i->second->m_SocketID);
-      LockGuard::leaveCS(ls->second->m_AcceptSync.mutex());
+      CriticalSection::leave(ls->second->m_AcceptSync.mutex());
    }
    self->m_Sockets.clear();
 
@@ -1848,16 +1848,16 @@ void* CUDTUnited::garbageCollect(void* p)
    {
       j->second->m_ClosureTimeStamp = steady_clock::time_point();
    }
-   LockGuard::leaveCS(self->m_ControlLock);
+   CriticalSection::leave(self->m_ControlLock);
 
    HLOGC(mglog.Debug, log << "GC: GLOBAL EXIT - releasing all CLOSED sockets.");
    while (true)
    {
       self->checkBrokenSockets();
 
-      LockGuard::enterCS(self->m_ControlLock);
+      CriticalSection::enter(self->m_ControlLock);
       bool empty = self->m_ClosedSockets.empty();
-      LockGuard::leaveCS(self->m_ControlLock);
+      CriticalSection::leave(self->m_ControlLock);
 
       if (empty)
          break;
@@ -3060,32 +3060,32 @@ SRT_SOCKSTATUS getsockstate(SRTSOCKET u)
 
 void setloglevel(LogLevel::type ll)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.max_level = ll;
 }
 
 void addlogfa(LogFA fa)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.enabled_fa.set(fa, true);
 }
 
 void dellogfa(LogFA fa)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.enabled_fa.set(fa, false);
 }
 
 void resetlogfa(set<LogFA> fas)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     for (int i = 0; i <= SRT_LOGFA_LASTNONE; ++i)
         srt_logger_config.enabled_fa.set(i, fas.count(i));
 }
 
 void resetlogfa(const int* fara, size_t fara_size)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.enabled_fa.reset();
     for (const int* i = fara; i != fara + fara_size; ++i)
         srt_logger_config.enabled_fa.set(*i, true);
@@ -3093,20 +3093,20 @@ void resetlogfa(const int* fara, size_t fara_size)
 
 void setlogstream(std::ostream& stream)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.log_stream = &stream;
 }
 
 void setloghandler(void* opaque, SRT_LOG_HANDLER_FN* handler)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.loghandler_opaque = opaque;
     srt_logger_config.loghandler_fn = handler;
 }
 
 void setlogflags(int flags)
 {
-    UniqueLock gg(srt_logger_config.mutex);
+    ScopedLock gg(srt_logger_config.mutex);
     srt_logger_config.flags = flags;
 }
 

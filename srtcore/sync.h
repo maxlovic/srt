@@ -178,10 +178,10 @@ using ScopedLock = scoped_lock<mutex>;
 
 using Thread     = thread;
 
-struct LockGuard
+struct CriticalSection
 {
-    static void enterCS(Mutex &m) { return m.lock(); }
-    static void leaveCS(Mutex &m) { return m.unlock(); }
+    static void enter(Mutex &m) { return m.lock(); }
+    static void leave(Mutex &m) { return m.unlock(); }
 };
 
 inline void SleepFor(const steady_clock::duration &t) { this_thread::sleep_for(t); }
@@ -197,14 +197,14 @@ class InvertedLock
         if (!m_pMutex)
             return;
 
-        LockGuard::leaveCS(*m_pMutex);
+        CriticalSection::leave(*m_pMutex);
     }
 
     ~InvertedLock()
     {
         if (!m_pMutex)
             return;
-        LockGuard::enterCS(*m_pMutex);
+        CriticalSection::enter(*m_pMutex);
     }
 };
 

@@ -173,7 +173,7 @@ public:
    int getPktRcvSpeed(ref_t<int> bytesps) const
    {
        // Lock access to the packet Window
-       UniqueLock cg(m_lockPktWindow);
+       ScopedLock lock(m_lockPktWindow);
 
        int pktReplica[ASIZE];          // packet information window (inter-packet time)
        return getPktRcvSpeed_in(m_aPktWindow, pktReplica, m_aBytesWindow, ASIZE, *bytesps);
@@ -191,7 +191,7 @@ public:
    int getBandwidth() const
    {
        // Lock access to the packet Window
-       UniqueLock cg(m_lockProbeWindow);
+       ScopedLock lock(m_lockProbeWindow);
 
        int probeReplica[PSIZE];
        return getBandwidth_in(m_aProbeWindow, probeReplica, PSIZE);
@@ -214,7 +214,7 @@ public:
 
    void onPktArrival(int pktsz = 0)
    {
-       UniqueLock cg(m_lockPktWindow);
+       ScopedLock lock(m_lockPktWindow);
 
        m_CurrArrTime = steady_clock::now();
 
@@ -243,7 +243,7 @@ public:
    void probe2Arrival(int pktsz = 0)
    {
        // Lock access to the packet Window
-       UniqueLock cg(m_lockProbeWindow);
+       ScopedLock lock(m_lockProbeWindow);
 
        m_CurrArrTime = steady_clock::now();
 

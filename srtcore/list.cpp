@@ -81,7 +81,7 @@ CSndLossList::~CSndLossList()
 
 int CSndLossList::insert(int32_t seqno1, int32_t seqno2)
 {
-   UniqueLock listguard(m_ListLock);
+   ScopedLock listguard(m_ListLock);
 
    if (0 == m_iLength)
    {
@@ -253,7 +253,7 @@ int CSndLossList::insert(int32_t seqno1, int32_t seqno2)
 
 void CSndLossList::remove(int32_t seqno)
 {
-   UniqueLock listguard(m_ListLock);
+   ScopedLock listguard(m_ListLock);
 
    if (0 == m_iLength)
       return;
@@ -365,7 +365,7 @@ void CSndLossList::remove(int32_t seqno)
 
 int CSndLossList::getLossLength()
 {
-   UniqueLock listguard(m_ListLock);
+   ScopedLock listguard(m_ListLock);
 
    return m_iLength;
 }
@@ -375,7 +375,7 @@ int32_t CSndLossList::getLostSeq()
    if (0 == m_iLength)
      return -1;
 
-   UniqueLock listguard(m_ListLock);
+   ScopedLock listguard(m_ListLock);
 
    if (0 == m_iLength)
      return -1;

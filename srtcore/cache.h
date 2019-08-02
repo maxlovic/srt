@@ -96,7 +96,7 @@ public:
 
    int lookup(T* data)
    {
-      UniqueLock cacheguard(m_Lock);
+      ScopedLock cacheguard(m_Lock);
 
       int key = data->getKey();
       if (key < 0)
@@ -124,7 +124,7 @@ public:
 
    int update(T* data)
    {
-      UniqueLock cacheguard(m_Lock);
+      ScopedLock cacheguard(m_Lock);
 
       int key = data->getKey();
       if (key < 0)
