@@ -173,12 +173,37 @@ steady_clock::duration from_microseconds(long t_us);
 using Mutex      = mutex;
 using UniqueLock = unique_lock<mutex>;
 
+
 struct LockGuard
 {
     static void enterCS(Mutex &m) { return m.lock(); }
     static void leaveCS(Mutex &m) { return m.unlock(); }
 };
 
+
+
+class InvertedLock
+{
+    Mutex *m_pMutex;
+
+  public:
+
+    InvertedLock(Mutex *m)
+        : m_pMutex(m)
+    {
+        if (!m_pMutex)
+            return;
+
+        LockGuard::leaveCS(*m_pMutex);
+    }
+
+    ~InvertedLock()
+    {
+        if (!m_pMutex)
+            return;
+        LockGuard::enterCS(*m_pMutex);
+    }
+};
 
 class SyncEvent
 {
@@ -190,7 +215,7 @@ class SyncEvent
 
   public:
 
-      //Mutex &mutex() { return m_tick_lock; }
+      Mutex &mutex() { return m_tick_lock; }
 
   public:
     /// @return true  if condition occured
@@ -202,7 +227,11 @@ class SyncEvent
     ///         false on timeout
     bool wait_for(steady_clock::duration timeout);
 
-    void wake_up();
+    bool wait_for(UniqueLock &lk, steady_clock::duration timeout);
+
+    void notify_one();
+
+    void notify_all();
 
   private:
 #ifdef USE_STL_CHRONO

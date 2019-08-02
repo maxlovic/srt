@@ -4484,7 +4484,7 @@ void *CUDT::tsbpd(void *param)
              */
             if (self->m_bSynRecving)
             {
-                self->m_RecvDataSync.wake_up();
+                self->m_RecvDataSync.notify_one();
             }
             /*
              * Set EPOLL_IN to wakeup any thread waiting on epoll
@@ -5156,7 +5156,7 @@ int CUDT::receiveBuffer(char *data, int len)
     if (m_bTsbPd)
     {
         HLOGP(tslog.Debug, "Ping TSBPD thread to schedule wakeup");
-        m_RcvTSBPDSync.wake_up();
+        m_RcvTSBPDSync.notify_one();
     }
 
     if (!m_pRcvBuffer->isRcvDataReady())
@@ -5545,7 +5545,7 @@ int CUDT::receiveMessage(char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
 
         /* Kick TsbPd thread to schedule next wakeup (if running) */
         if (m_bTsbPd)
-            m_RcvTSBPDSync.wake_up();
+            m_RcvTSBPDSync.notify_one();
 
         if (!m_pRcvBuffer->isRcvDataReady())
         {
@@ -5573,7 +5573,7 @@ int CUDT::receiveMessage(char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
 
             // Kick TsbPd thread to schedule next wakeup (if running)
             if (m_bTsbPd)
-                m_RcvTSBPDSync.wake_up();
+                m_RcvTSBPDSync.notify_one();
 
             // Shut up EPoll if no more messages in non-blocking mode
             s_UDTUnited.m_EPoll.update_events(m_SocketID, m_sPollID, UDT_EPOLL_IN, false);
@@ -5585,7 +5585,7 @@ int CUDT::receiveMessage(char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
             {
                 // Kick TsbPd thread to schedule next wakeup (if running)
                 if (m_bTsbPd)
-                    m_RcvTSBPDSync.wake_up();
+                    m_RcvTSBPDSync.notify_one();
 
                 // Shut up EPoll if no more messages in non-blocking mode
                 s_UDTUnited.m_EPoll.update_events(m_SocketID, m_sPollID, UDT_EPOLL_IN, false);
@@ -5613,7 +5613,7 @@ int CUDT::receiveMessage(char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
             if (m_bTsbPd)
             {
                 HLOGP(tslog.Debug, "recvmsg: KICK tsbpd()");
-                m_RcvTSBPDSync.wake_up();
+                m_RcvTSBPDSync.notify_one();
             }
 
             do
@@ -5662,7 +5662,7 @@ int CUDT::receiveMessage(char *data, int len, ref_t<SRT_MSGCTRL> r_mctrl)
         if (m_bTsbPd)
         {
             HLOGP(tslog.Debug, "recvmsg: KICK tsbpd() (buffer empty)");
-            m_RcvTSBPDSync.wake_up();
+            m_RcvTSBPDSync.notify_one();
         }
 
         // Shut up EPoll if no more messages in non-blocking mode
@@ -6325,10 +6325,10 @@ void CUDT::releaseSynch()
     m_SendLock.lock();
     m_SendLock.unlock();
 
-    m_RecvDataSync.wake_up();
+    m_RecvDataSync.notify_one();
 
     LockGuard::enterCS(m_RecvLock);
-    m_RcvTSBPDSync.wake_up();
+    m_RcvTSBPDSync.notify_one();
     LockGuard::leaveCS(m_RecvLock);
 
     if (!pthread_equal(m_RcvTsbPdThread, pthread_t()))
@@ -6453,7 +6453,7 @@ void CUDT::sendCtrl(UDTMessageType pkttype, void *lparam, void *rparam, int size
                 /* Newly acknowledged data, signal TsbPD thread */
                 LockGuard::enterCS(m_RecvLock);
                 if (m_bTsbPdAckWakeup)
-                    m_RcvTSBPDSync.wake_up();
+                    m_RcvTSBPDSync.notify_one();
                 LockGuard::leaveCS(m_RecvLock);
             }
             else
@@ -6461,7 +6461,7 @@ void CUDT::sendCtrl(UDTMessageType pkttype, void *lparam, void *rparam, int size
                 if (m_bSynRecving)
                 {
                     // signal a waiting "recv" call if there is any data available
-                    m_RecvDataSync.wake_up();
+                    m_RecvDataSync.notify_one();
                 }
                 // acknowledge any waiting epolls to read
                 s_UDTUnited.m_EPoll.update_events(m_SocketID, m_sPollID, UDT_EPOLL_IN, true);
@@ -6808,7 +6808,7 @@ void CUDT::processCtrl(CPacket &ctrlpkt)
         LockGuard::leaveCS(m_AckLock);
         if (m_bSynSending)
         {
-            m_SendBlockSync.wake_up();
+            m_SendBlockSync.notify_one();
         }
 
         // acknowledde any waiting epolls to write
@@ -7573,7 +7573,7 @@ void CUDT::processClose()
     if (m_bTsbPd)
     {
         HLOGP(mglog.Debug, "processClose: lock-and-signal TSBPD");
-        m_RcvTSBPDSync.wake_up();
+        m_RcvTSBPDSync.notify_one();
     }
 
     // Signal the sender and recver if they are waiting for data.
@@ -7848,7 +7848,7 @@ int CUDT::processData(CUnit *unit)
 
         if (m_bTsbPd)
         {
-            m_RcvTSBPDSync.wake_up();
+            m_RcvTSBPDSync.notify_one();
         }
     }
 

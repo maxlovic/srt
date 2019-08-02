@@ -286,7 +286,7 @@ void CSndUList::update(const CUDT* u, EReschedule reschedule)
       if (n->m_iHeapLoc == 0)
       {
          n->m_timeStamp = clock::now();
-         m_pTimer->wake_up();
+         m_pTimer->notify_one();
          return;
       }
 
@@ -399,12 +399,12 @@ void CSndUList::insert_(time_point ts, const CUDT* u)
 
     // an earlier event has been inserted, wake up sending worker
     if (n->m_iHeapLoc == 0)
-        m_pTimer->wake_up();
+        m_pTimer->notify_one();
 
     // first entry, activate the sending queue
     if (0 == m_iLastEntry)
     {
-        m_pWindowSync->wake_up();
+        m_pWindowSync->notify_one();
     }
 }
 
@@ -446,7 +446,7 @@ void CSndUList::remove_(const CUDT* u)
 
    // the only event has been deleted, wake up immediately
    if (0 == m_iLastEntry)
-      m_pTimer->wake_up();
+      m_pTimer->notify_one();
 }
 
 //
@@ -466,10 +466,10 @@ CSndQueue::~CSndQueue()
 
     if (m_pTimer != NULL)
     {
-        m_pTimer->wake_up();
+        m_pTimer->notify_one();
     }
 
-    m_WindowSync.wake_up();
+    m_WindowSync.notify_one();
     if (!pthread_equal(m_WorkerThread, pthread_t()))
         pthread_join(m_WorkerThread, NULL);
 
@@ -1619,7 +1619,7 @@ void CRcvQueue::storePkt(int32_t id, CPacket* pkt)
    if (i == m_mBuffer.end())
    {
       m_mBuffer[id].push(pkt);
-       m_PassSync.wake_up();
+       m_PassSync.notify_one();
    }
    else
    {

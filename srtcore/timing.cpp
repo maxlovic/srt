@@ -214,10 +214,21 @@ bool srt::sync::SyncEvent::wait_for(steady_clock::duration timeout)
 }
 
 
-void srt::sync::SyncEvent::wake_up()
+bool srt::sync::SyncEvent::wait_for(UniqueLock &lk, steady_clock::duration timeout)
+{
+    return m_tick_cond.wait_for(lk, timeout) != cv_status::timeout;
+
+    // wait_until(steady_clock::now() + timeout);
+}
+
+
+void srt::sync::SyncEvent::notify_one()
 {
     m_tick_cond.notify_one();
 }
+
+
+void srt::sync::SyncEvent::notify_all() { m_tick_cond.notify_all(); }
 
 #else
 
@@ -273,12 +284,18 @@ void srt::sync::Timer::wait_until(time_point<steady_clock> tp)
 }
 
 
-void srt::sync::Timer::wake_up()
+void srt::sync::Timer::notify_one()
 {
     m_sched_time = steady_clock::now();
     pthread_cond_signal(&m_tick_cond);
 }
 
+
+void srt::sync::Timer::notify_all()
+{
+    m_sched_time = steady_clock::now();
+    pthread_cond_broadcast(&m_tick_cond);
+}
 
 #endif
 
