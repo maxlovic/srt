@@ -245,7 +245,8 @@ private:
    int m_iInstanceCount;				// number of startup() called by application
    bool m_bGCStatus;					// if the GC thread is working (true)
 
-   pthread_t m_GCThread;
+
+   srt::sync::Thread m_GCThread;
    static void* garbageCollect(void*);
 
    std::map<SRTSOCKET, CUDTSocket*> m_ClosedSockets;   // temporarily store closed sockets

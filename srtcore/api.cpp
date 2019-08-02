@@ -193,7 +193,8 @@ int CUDTUnited::startup()
 
    {
        ThreadName tn("SRT:GC");
-       pthread_create(&m_GCThread, NULL, garbageCollect, this);
+       m_GCThread = Thread(garbageCollect, this);
+       //pthread_create(&m_GCThread, NULL, garbageCollect, this);
    }
 
    m_bGCStatus = true;
@@ -213,7 +214,9 @@ int CUDTUnited::cleanup()
 
    m_bClosing = true;
    m_checkState.notify_one();
-   pthread_join(m_GCThread, NULL);
+
+   if (m_GCThread.joinable())
+      m_GCThread.join();
 
    m_bGCStatus = false;
 
