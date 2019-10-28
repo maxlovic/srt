@@ -9,17 +9,28 @@ addons:
         - cmake
         - libssl-dev
         - build-essential
+    sonarcloud:
+        organization: "maxlovic"
+        token:
+            secure: "b6wNG5SyPMsa9ErmolD1SGoa8WWz4CVS1j89pktXEl30UBBvY1HbPXaBdN1ky5/ksmVA/HkqM9R82PFW+suxZucuVHpar/LPPwgT8hC97Whk2Q6zB+wmr99scQJRBLvgwmkpuXpEeiuwIhR8VByzYa+MP2sp2p9FN4hlkXucmXhH00FowCRi1UjA7wH8+LU0I3sLBItz8wBQNB4Dp7flyPjfQ9SEmWWELRNl9Oj7uWUnykzVwZ92xtGQUt+TqVJ55uo91YFcwq15EnARYQtEcx2yrkBYPG7NHka1iYQ6d7gFi2k8VE2J/7eFNItI+A5EmJ092c8RLGdQ95FA1HsiVGYzfcgrLdkLCRDni7A9Z8eBVKOtE3iH9Py4rBDC/UhuuouIRsiy03xq8/CB3/lH3WHmzTVTOclvKzETCjuz7mWxCgpxPX46QxmP/K4TPdA9aDbTOo8c1Yx5WT4H8aYqNB/wSp9Dqd7JZ3++0R+nkuGKUhSoAt1o+GK3vjsMKqKOdejKd1Em2KS9q5N2SIYhdpNGGBju7SDYQUe+Camhi1KL+PKboUNh+tv8FnXq6yTuljRbc1hX5YDVQK+HeD64Fb7iCazwpU8htlB1QlpLkg5r+k7e2TMmUpKTe9qyJP+1dbot4K6VFiFU1/JYxpR1iovFtnlueP2aFaeaWeXOUM0="
     homebrew:
         packages:
         - openssl
 
 matrix:
     include:
-        - env: BUILD_TYPE=Debug
+        - os: linux
+          env:
+          - BUILD_TYPE=Debug
+          - BUILD_OPTS=-DENABLE_CODE_COVERAGE=ON
+          after_success:
+          - source ./scripts/collect-gcov.sh
+          - sonar-scanner -D"sonar.cfamily.gcov.reportPath=.";
         - env:
           - BUILD_TYPE=Debug
           - BUILD_OPTS=-DENABLE_LOGGING=OFF
-        - env: BUILD_TYPE=Release
+        - os: linux
+          env: BUILD_TYPE=Release
         - os: osx
           osx_image: xcode10.2
           env: BUILD_TYPE=Debug
@@ -54,5 +65,9 @@ script:
         export PKG_CONFIG_PATH=$(brew --prefix openssl)"/lib/pkgconfig";
         cmake . -DCMAKE_BUILD_TYPE=$BUILD_TYPE $BUILD_OPTS -DENABLE_UNITTESTS="ON";
       fi
-    - make
+    - if [ "$TRAVIS_OS_NAME" != "linux" ]; then
+        make;
+      elif [ "$TRAVIS_OS_NAME" == "linux" ]; then
+        build-wrapper-linux-x86-64 --out-dir bw-output make;
+      fi
     - if [ "$TRAVIS_COMPILER" != "x86_64-w64-mingw32-g++" ]; then ctest --extra-verbose; fi
