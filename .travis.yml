@@ -71,3 +71,5 @@ script:
         build-wrapper-linux-x86-64 --out-dir bw-output make;
       fi
     - if [ "$TRAVIS_COMPILER" != "x86_64-w64-mingw32-g++" ]; then ctest --extra-verbose; fi
+    - if (( "$RUN_SONARCUBE" )); then source ./scripts/collect-gcov.sh; fi
+    - if (( "$RUN_SONARCUBE" )); then sonar-scanner -D"sonar.cfamily.gcov.reportPath=."; fi
