@@ -7584,19 +7584,7 @@ void CUDT::processCtrlLossReport(const CPacket& ctrlpkt)
                     LOGC(mglog.Note, log << CONID() << "LOSSREPORT: adding "
                         << losslist_lo << " - " << losslist_hi << " to loss list");
 
-                    if (m_bRcvNakReport)
-                    {
-                        const steady_clock::time_point time_now = steady_clock::now();
-                        const steady_clock::time_point time_nak = time_now - microseconds_from(m_iRTT + 4 * m_iRTTVar);
-
-                        int seqno = losslist_lo;
-                        do {
-                            num += processLossSeq(seqno, time_nak, time_now);
-                            seqno = CSeqNo::incseq(seqno);
-                        } while (seqno <= losslist_hi);
-                    }
-                    else
-                        num = m_pSndLossList->insert(losslist_lo, losslist_hi);
+                    num = m_pSndLossList->insert(losslist_lo, losslist_hi);
                 }
                 // ELSE IF losslist_hi %>= m_iSndLastAck
                 else if (CSeqNo::seqcmp(losslist_hi, m_iSndLastAck) >= 0)
@@ -7610,21 +7598,7 @@ void CUDT::processCtrlLossReport(const CPacket& ctrlpkt)
                     LOGC(mglog.Note, log << CONID() << "LOSSREPORT: adding "
                         << m_iSndLastAck << "[ACK] - " << losslist_hi << " to loss list");
 
-                    if (m_bRcvNakReport)
-                    {
-                        const steady_clock::time_point time_now = steady_clock::now();
-                        const steady_clock::time_point time_nak = time_now - microseconds_from(m_iRTT + 4 * m_iRTTVar);
-
-                        int seqno = m_iSndLastAck;
-                        do {
-                            num += processLossSeq(seqno, time_nak, time_now);
-                            seqno = CSeqNo::incseq(seqno);
-                        } while (seqno <= losslist_hi);
-                    }
-                    else
-                    {
-                        num = m_pSndLossList->insert(m_iSndLastAck, losslist_hi);
-                    }
+                    num = m_pSndLossList->insert(m_iSndLastAck, losslist_hi);
                 }
                 else
                 {
@@ -7675,19 +7649,7 @@ void CUDT::processCtrlLossReport(const CPacket& ctrlpkt)
                 LOGC(mglog.Note, log << CONID() << "rcv LOSSREPORT: %"
                     << losslist[i] << " (1 packet)");
 
-                int num = 0;
-                if (m_bRcvNakReport)
-                {
-                    const steady_clock::time_point time_now = steady_clock::now();
-                    const steady_clock::time_point time_nak = time_now - microseconds_from(m_iRTT + 4 * m_iRTTVar);
-
-                    const int seqno = losslist[i];
-                    num += processLossSeq(seqno, time_nak, time_now);
-                }
-                else
-                {
-                    num = m_pSndLossList->insert(losslist[i], losslist[i]);
-                }
+                const int num = m_pSndLossList->insert(losslist[i], losslist[i]);
 
                 enterCS(m_StatsLock);
                 m_stats.traceSndLoss += num;
@@ -8099,6 +8061,8 @@ int CUDT::packLostData(CPacket& w_packet, steady_clock::time_point& w_origintime
 {
     // protect m_iSndLastDataAck from updating by ACK processing
     CGuard ackguard(m_RecvAckLock);
+    const steady_clock::time_point time_now = steady_clock::now();
+    const steady_clock::time_point time_nak = time_now - microseconds_from(m_iRTT + 4 * m_iRTTVar);
 
     while ((w_packet.m_iSeqNo = m_pSndLossList->popLostSeq()) >= 0)
     {
@@ -8128,6 +8092,21 @@ int CUDT::packLostData(CPacket& w_packet, steady_clock::time_point& w_origintime
 
             sendCtrl(UMSG_DROPREQ, &w_packet.m_iMsgNo, seqpair, sizeof(seqpair));
             continue;
+        }
+
+        if (m_bPeerNakReport)
+        {
+            steady_clock::time_point tsLastRexmit;
+            m_pSndBuffer->getPacketTime(offset, tsLastRexmit);
+            int num = 0;
+            if (!is_zero(tsLastRexmit) && tsLastRexmit >= time_nak)
+            {
+                LOGC(mglog.Note, log << CONID() << "REXMIT: ignoring seqno "
+                    << w_packet.m_iSeqNo << ", last rexmit " << (is_zero(tsLastRexmit) ? "never" : FormatTime(tsLastRexmit))
+                    << " RTT=" << m_iRTT << " RTTVar=" << m_iRTTVar
+                    << " now=" << FormatTime(time_now));
+                continue;
+            }
         }
 
         int msglen;
