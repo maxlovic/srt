@@ -251,6 +251,7 @@ CUDT::CUDT(CUDTSocket* parent): m_parent(parent)
     m_iOPT_SndDropDelay     = 0;
     m_bOPT_StrictEncryption = true;
     m_iOPT_PeerIdleTimeout  = COMM_RESPONSE_TIMEOUT_MS;
+    m_iOPT_TangoNAK         = 0;
     m_bTLPktDrop            = true; // Too-late Packet Drop
     m_bMessageAPI           = true;
     m_zOPT_ExpPayloadSize   = SRT_LIVE_DEF_PLSIZE;
@@ -312,6 +313,7 @@ CUDT::CUDT(CUDTSocket* parent, const CUDT& ancestor): m_parent(parent)
     m_bOPT_TLPktDrop        = ancestor.m_bOPT_TLPktDrop;
     m_iOPT_SndDropDelay     = ancestor.m_iOPT_SndDropDelay;
     m_bOPT_StrictEncryption = ancestor.m_bOPT_StrictEncryption;
+    m_iOPT_TangoNAK         = ancestor.m_iOPT_TangoNAK;
     m_iOPT_PeerIdleTimeout  = ancestor.m_iOPT_PeerIdleTimeout;
     m_zOPT_ExpPayloadSize   = ancestor.m_zOPT_ExpPayloadSize;
     m_bTLPktDrop            = ancestor.m_bTLPktDrop;
@@ -941,6 +943,13 @@ void CUDT::setOpt(SRT_SOCKOPT optName, const void* optval, int optlen)
 
             m_OPT_PktFilterConfigString = arg;
         }
+        break;
+
+    case SRTO_TANGO_NAK:
+        if (m_bConnected)
+            throw CUDTException(MJ_NOTSUP, MN_ISCONNECTED, 0);
+
+        m_iOPT_TangoNAK = *(int*)optval;
         break;
 
     default:
@@ -8062,7 +8071,7 @@ int CUDT::packLostData(CPacket& w_packet, steady_clock::time_point& w_origintime
     // protect m_iSndLastDataAck from updating by ACK processing
     CGuard ackguard(m_RecvAckLock);
     const steady_clock::time_point time_now = steady_clock::now();
-    const steady_clock::time_point time_nak = time_now - microseconds_from(m_iRTT + 4 * m_iRTTVar);
+    const steady_clock::time_point time_nak = time_now - microseconds_from(m_iRTT - 4 * m_iRTTVar);
 
     while ((w_packet.m_iSeqNo = m_pSndLossList->popLostSeq()) >= 0)
     {
@@ -8094,7 +8103,7 @@ int CUDT::packLostData(CPacket& w_packet, steady_clock::time_point& w_origintime
             continue;
         }
 
-        if (m_bPeerNakReport)
+        if (m_bPeerNakReport && m_iOPT_TangoNAK != 0)
         {
             steady_clock::time_point tsLastRexmit;
             m_pSndBuffer->getPacketTime(offset, tsLastRexmit);
