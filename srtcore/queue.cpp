@@ -178,6 +178,8 @@ int CUnitQueue::increase()
         delete[] tempu;
         delete[] tempb;
 
+        LOGC(mglog.Error,
+            log << "CUnitQueue:increase: failed to allocate " << size << " new units");
         return -1;
     }
 
@@ -211,7 +213,11 @@ CUnit *CUnitQueue::getNextAvailUnit()
         increase();
 
     if (m_iCount >= m_iSize)
+    {
+        LOGC(mglog.Warn, log << "CUnitQueue::getNextAvailUnit m_iCount >= m_iSize. m_iCount="
+            << m_iCount << ", m_iSize=" << m_iSize);
         return NULL;
+    }
 
     CQEntry *entrance = m_pCurrQueue;
 
@@ -232,7 +238,12 @@ CUnit *CUnitQueue::getNextAvailUnit()
         m_pAvailUnit = m_pCurrQueue->m_pUnit;
     } while (m_pCurrQueue != entrance);
 
+    LOGC(mglog.Warn, log << "CUnitQueue::getNextAvailUnit returning NULL. m_iCount="
+        << m_iCount << ", m_iSize=" << m_iSize);
     increase();
+    LOGC(mglog.Warn, log << "CUnitQueue::getNextAvailUnit tryed to iincrease. New m_iCount="
+        << m_iCount << ", m_iSize=" << m_iSize);
+
 
     return NULL;
 }

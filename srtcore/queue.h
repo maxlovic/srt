@@ -108,15 +108,13 @@ public:     // Operations on units
 
    CUnit* getNextAvailUnit();
 
-
    void makeUnitFree(CUnit * unit);
 
    void makeUnitGood(CUnit * unit);
 
 public:
 
-    inline int getIPversion() const { return m_iIPversion; }
-
+   inline int getIPversion() const { return m_iIPversion; }
 
 private:
    struct CQEntry
