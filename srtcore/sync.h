@@ -75,13 +75,14 @@ public: // Relational operators
     inline bool operator<(const Duration& rhs) const { return m_duration < rhs.m_duration; }
 
 public: // Assignment operators
-    inline void operator*=(const double mult) { m_duration = static_cast<int64_t>(m_duration * mult); }
+    inline void operator*=(const int64_t mult) { m_duration = static_cast<int64_t>(m_duration * mult); }
     inline void operator+=(const Duration& rhs) { m_duration += rhs.m_duration; }
     inline void operator-=(const Duration& rhs) { m_duration -= rhs.m_duration; }
 
     inline Duration operator+(const Duration& rhs) const { return Duration(m_duration + rhs.m_duration); }
     inline Duration operator-(const Duration& rhs) const { return Duration(m_duration - rhs.m_duration); }
-    inline Duration operator*(const int& rhs) const { return Duration(m_duration * rhs); }
+    inline Duration operator*(const int64_t& rhs) const { return Duration(m_duration * rhs); }
+    inline Duration operator/(const int64_t& rhs) const { return Duration(m_duration / rhs); }
 
 private:
     // int64_t range is from -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807

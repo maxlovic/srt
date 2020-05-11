@@ -505,6 +505,9 @@ public:
 private:
    int extractData(char *data, int len, int p, int q, bool passack);
    bool accessMsg(int& w_p, int& w_q, bool& w_passack, uint64_t& w_playtime, int upto);
+
+   /// Describes the state of the first N packets
+   std::string describeState(size_t first_n_pkts) const;
    
    /// thread safe bytes counter of the Recv & Ack buffer
    /// @param [in] pkts  acked or removed pkts from rcv buffer (used with acked = true)
