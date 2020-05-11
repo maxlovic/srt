@@ -18,6 +18,8 @@
 #ifdef ENABLE_STDCXX_SYNC
 #include <chrono>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #else
 #include <pthread.h>
 #endif
