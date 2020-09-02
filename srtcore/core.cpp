@@ -4249,7 +4249,7 @@ void CUDT::cookieContest()
     //
     // The cookie contest must be repeated every time because it
     // may change the state at some point.
-    int better_cookie = m_ConnReq.m_iCookie - m_ConnRes.m_iCookie;
+    const long long better_cookie = m_ConnReq.m_iCookie - m_ConnRes.m_iCookie;
 
     if (better_cookie > 0)
     {
