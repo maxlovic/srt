@@ -4249,16 +4249,20 @@ void CUDT::cookieContest()
     //
     // The cookie contest must be repeated every time because it
     // may change the state at some point.
-    const long long better_cookie = m_ConnReq.m_iCookie - m_ConnRes.m_iCookie;
+    const int better_cookie = m_ConnReq.m_iCookie - m_ConnRes.m_iCookie;
+    LOGC(cnlog.Error, log << "cookieContest: agent req = " << m_ConnReq.m_iCookie << " peer rsp = " << m_ConnRes.m_iCookie
+        << " better_cookie = " << better_cookie);
 
     if (better_cookie > 0)
     {
         m_SrtHsSide = HSD_INITIATOR;
+        LOGC(cnlog.Error, log << "cookieContest: result INITIATOR");
         return;
     }
 
     if (better_cookie < 0)
     {
+        LOGC(cnlog.Error, log << "cookieContest: result RESPONDER");
         m_SrtHsSide = HSD_RESPONDER;
         return;
     }
@@ -4273,6 +4277,7 @@ void CUDT::cookieContest()
     // the successful initial contest remains valid no matter how
     // cookies will change.
 
+    LOGC(cnlog.Error, log << "cookieContest: result DRAW");
     m_SrtHsSide = HSD_DRAW;
 }
 
