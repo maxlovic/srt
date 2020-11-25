@@ -17,7 +17,7 @@ namespace srt_logging
  *   RcvBuffer2 (circular buffer):
  *
  *   |<------------------- m_iSize ----------------------------->|
- *   |       |<--- acked pkts -->|<--- m_iMaxPos --->|           |
+ *   |       |<--- acked pkts -->|<--- m_iMaxPosInc --->|           |
  *   |       |                   |                   |           |
  *   +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
  *   | 0 | 0 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 0 | 1 | 0 |...| 0 | m_pUnit[]
@@ -32,18 +32,17 @@ namespace srt_logging
  *   thread safety:
  *    m_iStartPos:   CUDT::m_RecvLock
  *    m_iLastAckPos: CUDT::m_AckLock
- *    m_iMaxPos:     none? (modified on add and ack
+ *    m_iMaxPosInc:     none? (modified on add and ack
  */
 
 CRcvBuffer2::CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     : m_pUnit(NULL)
-    , m_size(size)
+    , m_szSize(size)
     , m_pUnitQueue(unitqueue)
-    , m_iLastAckSeqNo(initSeqNo)
+    , m_iStartSeqNo(initSeqNo)
     , m_iStartPos(0)
-    , m_iLastAckPos(0)
-    , m_iFirstUnreadablePos(0)
-    , m_iMaxPos(0)
+    , m_iFirstNonreadPos(0)
+    , m_iMaxPosInc(0)
     , m_iNotch(0)
     , m_numOutOfOrderPackets(0)
     , m_iFirstReadableOutOfOrder(-1)
@@ -52,21 +51,20 @@ CRcvBuffer2::CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     , m_uTsbPdDelay(0)
     , m_ullTsbPdTimeBase(0)
     , m_bTsbPdWrapCheck(false)
-    , m_BytesCountLock()
     , m_iBytesCount(0)
     , m_iAckedPktsCount(0)
     , m_iAckedBytesCount(0)
     , m_iAvgPayloadSz(7 * 188)
 {
     SRT_ASSERT(size < INT_MAX); // All position pointers are integers
-    m_pUnit = new CUnit *[m_size];
-    for (size_t i = 0; i < m_size; ++i)
+    m_pUnit = new CUnit *[m_szSize];
+    for (size_t i = 0; i < m_szSize; ++i)
         m_pUnit[i] = NULL;
 }
 
 CRcvBuffer2::~CRcvBuffer2()
 {
-    for (size_t i = 0; i < m_size; ++i)
+    for (size_t i = 0; i < m_szSize; ++i)
     {
         if (m_pUnit[i] != NULL)
         {
@@ -81,22 +79,24 @@ int CRcvBuffer2::insert(CUnit *unit)
 {
     SRT_ASSERT(unit != NULL);
     const int32_t seqno  = unit->m_Packet.getSeqNo();
-    const int     offset = CSeqNo::seqoff(m_iLastAckSeqNo, seqno);
+    const int     offset = CSeqNo::seqoff(m_iStartSeqNo, seqno);
 
     if (offset < 0)
         return -2;
 
     // If >= 2, then probably there is a long gap, and buffer needs to be reset.
-    SRT_ASSERT((m_iLastAckPos + offset) / m_size < 2);
+    SRT_ASSERT((m_iStartPos + offset) / m_szSize < 2);
 
-    const int pos = (m_iLastAckPos + offset) % m_size;
-    if (offset >= m_iMaxPos)
-        m_iMaxPos = offset + 1;
+    const int pos = (m_iStartPos + offset) % m_szSize;
+    if (offset >= m_iMaxPosInc)
+        m_iMaxPosInc = offset + 1;
 
     // Packet already exists
+    SRT_ASSERT(pos >= 0 && pos < m_szSize);
     if (m_pUnit[pos] != NULL)
         return -1;
 
+    m_pUnitQueue->makeUnitGood(unit);
     m_pUnit[pos] = unit;
     countBytes(1, (int)unit->m_Packet.getLength());
 
@@ -107,64 +107,26 @@ int CRcvBuffer2::insert(CUnit *unit)
         onInsertNotInOrderPacket(pos);
     }
 
-    // TODO: Don't want m_pUnitQueue here
-    m_pUnitQueue->makeUnitGood(unit);
+    updateNonreadPos();
 
     return 0;
 }
 
-/// TODO: Should call CTimer::triggerEvent() in the end.
-void CRcvBuffer2::ack(int32_t seqno)
-{
-    SRT_ASSERT(canAck());   // Sanity check only for debug build
-
-    const int len = CSeqNo::seqoff(m_iLastAckSeqNo, seqno);
-
-    SRT_ASSERT(len > 0);
-    if (len <= 0)
-        return;
-
-    {
-        int       pkts  = 0;
-        int       bytes = 0;
-        const int end   = (m_iLastAckPos + len) % m_size;
-        for (int i = m_iLastAckPos; i != end; i = incPos(i))
-        {
-            if (m_pUnit[i] == NULL)
-                continue;
-
-            pkts++;
-            bytes += (int)m_pUnit[i]->m_Packet.getLength();
-        }
-        if (pkts > 0)
-            countBytes(pkts, bytes, true);
-    }
-
-    m_iLastAckPos = (m_iLastAckPos + len) % m_size;
-    m_iMaxPos -= len;
-    if (m_iMaxPos < 0)
-        m_iMaxPos = 0;
-
-    m_iLastAckSeqNo = seqno;
-
-    updateReadablePos();
-}
-
-void CRcvBuffer2::dropMissing(int32_t seqno)
+void CRcvBuffer2::dropUpTo(int32_t seqno)
 {
     // Can drop only when nothing to read, and 
     // first unacknowledged packet is missing.
-    SRT_ASSERT(m_iLastAckPos == m_iFirstUnreadablePos);
+    SRT_ASSERT(m_iLastAckPos == m_iFirstNonreadPos);
     SRT_ASSERT(m_iLastAckPos == m_iStartPos);
 
-    int len = CSeqNo::seqoff(m_iLastAckSeqNo, seqno);
+    int len = CSeqNo::seqoff(m_iStartSeqNo, seqno);
     SRT_ASSERT(len > 0);
     if (len <= 0)
         return;
 
-    m_iMaxPos -= len;
-    if (m_iMaxPos < 0)
-        m_iMaxPos = 0;
+    m_iMaxPosInc -= len;
+    if (m_iMaxPosInc < 0)
+        m_iMaxPosInc = 0;
 
     // Check that all packets being dropped are missing.
     while (len > 0)
@@ -175,9 +137,11 @@ void CRcvBuffer2::dropMissing(int32_t seqno)
     }
 
     // Update positions
-    m_iLastAckPos   = m_iStartPos;
-    m_iLastAckSeqNo = seqno;
-    m_iFirstUnreadablePos = m_iStartPos;
+    m_iStartSeqNo = seqno;
+    // Set nonread position to the starting position before updating,
+    // because start position was increased, and preceeding packets are invalid. 
+    m_iFirstNonreadPos = m_iStartPos;
+    updateNonreadPos();
 }
 
 int CRcvBuffer2::readMessage(char *data, size_t len)
@@ -195,7 +159,7 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
     char * dst        = data;
     int    pkts_read  = 0;
     int    bytes_read = 0;
-    bool updateStartPos = (readPos == m_iStartPos);
+    const bool updateStartPos = (readPos == m_iStartPos); // Indicates if the m_iStartPos can be changed
     for (int i = readPos;; i = incPos(i))
     {
         SRT_ASSERT(m_pUnit[i]);
@@ -218,11 +182,8 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
         if (m_bTsbPdMode)
             updateTsbPdTimeBase(packet.getMsgTimeStamp());
 
-        if (m_numOutOfOrderPackets && ~packet.getMsgOrderFlag())
+        if (m_numOutOfOrderPackets && !packet.getMsgOrderFlag())
             --m_numOutOfOrderPackets;
-
-        if (i == m_iLastAckPos)
-            updateStartPos = false;
 
         const bool pbLast = packet.getMsgBoundary() & PB_LAST;
 
@@ -237,7 +198,6 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
         {
             m_pUnit[i]->m_iFlag = CUnit::PASSACK;
         }
-
 
         if (pbLast)
         {
@@ -256,50 +216,38 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
 int CRcvBuffer2::getAvailBufSize() const
 {
     // One slot must be empty in order to tell the difference between "empty buffer" and "full buffer"
-    return m_size - getRcvDataSize() - 1;
+    return m_szSize - getRcvDataSize() - 1;
 }
 
 int CRcvBuffer2::getRcvDataSize() const
 {
-    if (m_iLastAckPos >= m_iStartPos)
-        return m_iLastAckPos - m_iStartPos;
+    if (m_iFirstNonreadPos >= m_iStartPos)
+        return m_iFirstNonreadPos - m_iStartPos;
 
-    return m_size + m_iLastAckPos - m_iStartPos;
+    return m_szSize + m_iFirstNonreadPos - m_iStartPos;
 }
 
 CRcvBuffer2::PacketInfo CRcvBuffer2::getFirstValidPacketInfo() const
 {
-    bool      acknowledged = true;
-    const int end_pos      = (m_iLastAckPos + m_iMaxPos) % m_size;
+    const int end_pos      = (m_iStartPos + m_iMaxPosInc) % m_szSize;
     for (int i = m_iStartPos; i != end_pos; i = incPos(i))
     {
-        if (i == m_iLastAckPos)
-            acknowledged = false;
-
         if (!m_pUnit[i])
             continue;
 
         const CPacket &  packet = m_pUnit[i]->m_Packet;
-        const PacketInfo info   = {packet.getSeqNo(), acknowledged, i != m_iStartPos, getPktTsbPdTime(packet.getMsgTimeStamp())};
+        const PacketInfo info   = {packet.getSeqNo(), i != m_iStartPos, getPktTsbPdTime(packet.getMsgTimeStamp())};
         return info;
     }
 
     return PacketInfo();
 }
 
-bool CRcvBuffer2::canAck() const
-{
-    if (m_iMaxPos == 0)
-        return false;
-
-    return m_pUnit[m_iLastAckPos] != NULL;
-}
-
 size_t CRcvBuffer2::countReadable() const
 {
-    if (m_iFirstUnreadablePos >= m_iStartPos)
-        return m_iFirstUnreadablePos - m_iStartPos;
-    return m_size + m_iFirstUnreadablePos - m_iStartPos;
+    if (m_iFirstNonreadPos >= m_iStartPos)
+        return m_iFirstNonreadPos - m_iStartPos;
+    return m_szSize + m_iFirstNonreadPos - m_iStartPos;
 }
 
 bool CRcvBuffer2::canRead(uint64_t time_now) const
@@ -350,21 +298,23 @@ void CRcvBuffer2::countBytes(int pkts, int bytes, bool acked)
     }
 }
 
-void CRcvBuffer2::updateReadablePos()
+void CRcvBuffer2::updateNonreadPos()
 {
     // const PacketBoundary boundary = packet.getMsgBoundary();
 
     //// The simplest case is when inserting a sequential PB_SOLO packet.
-    // if (boundary == PB_SOLO && (m_iFirstUnreadablePos + 1) % m_size == pos)
+    // if (boundary == PB_SOLO && (m_iFirstNonreadPos + 1) % m_szSize == pos)
     //{
-    //    m_iFirstUnreadablePos = pos;
+    //    m_iFirstNonreadPos = pos;
     //    return;
     //}
 
     // Check if the gap is filled.
-    SRT_ASSERT(m_pUnit[m_iFirstUnreadablePos]);
+    SRT_ASSERT(m_pUnit[m_iFirstNonreadPos]);
 
-    int pos = m_iFirstUnreadablePos;
+    const int last_pos =  incPos(m_iStartPos, m_iMaxPosInc);
+
+    int pos = m_iFirstNonreadPos;
     while (m_pUnit[pos]->m_iFlag == CUnit::GOOD && (m_pUnit[pos]->m_Packet.getMsgBoundary() & PB_FIRST))
     {
         // bool good = true;
@@ -380,10 +330,10 @@ void CRcvBuffer2::updateReadablePos()
         // If the message didn't look as expected, interrupt this.
 
         // This begins with a message starting at m_iStartPos
-        // up to m_iLastAckPos OR until the PB_LAST message is found.
+        // up to last_pos OR until the PB_LAST message is found.
         // If any of the units on this way isn't good, this OUTER loop
         // will be interrupted.
-        for (int i = pos; i != m_iLastAckPos; i = (i + 1) % m_size)
+        for (int i = pos; i != last_pos; i = (i + 1) % m_szSize)
         {
             if (!m_pUnit[i] || m_pUnit[i]->m_iFlag != CUnit::GOOD)
             {
@@ -394,15 +344,15 @@ void CRcvBuffer2::updateReadablePos()
             // Likewise, boundary() & PB_LAST will be satisfied for last OR solo.
             if (m_pUnit[i]->m_Packet.getMsgBoundary() & PB_LAST)
             {
-                m_iFirstUnreadablePos = (i + 1) % m_size;
+                m_iFirstNonreadPos = incPos(i);
                 break;
             }
         }
 
-        if (pos == m_iFirstUnreadablePos || !m_pUnit[m_iFirstUnreadablePos])
+        if (pos == m_iFirstNonreadPos || !m_pUnit[m_iFirstNonreadPos])
             break;
 
-        pos = m_iFirstUnreadablePos;
+        pos = m_iFirstNonreadPos;
     }
 
     // 1. If there is a gap between this packet and m_iLastReadablePos
@@ -413,7 +363,7 @@ void CRcvBuffer2::updateReadablePos()
 
 int CRcvBuffer2::findLastMessagePkt()
 {
-    for (int i = m_iStartPos; i != m_iFirstUnreadablePos; i = incPos(i))
+    for (int i = m_iStartPos; i != m_iFirstNonreadPos; i = incPos(i))
     {
         SRT_ASSERT(m_pUnit[i]);
 
@@ -443,7 +393,7 @@ void CRcvBuffer2::onInsertNotInOrderPacket(int insertPos)
 
     // Just a sanity check. This function is called when a new packet is added.
     // So the should be unacknowledged packets.
-    SRT_ASSERT(m_iMaxPos > 0);
+    SRT_ASSERT(m_iMaxPosInc > 0);
     SRT_ASSERT(m_pUnit[insertPos]);
     const CPacket &pkt = m_pUnit[insertPos]->m_Packet;
     const PacketBoundary boundary = pkt.getMsgBoundary();
@@ -476,14 +426,14 @@ void CRcvBuffer2::updateFirstReadableOutOfOrder()
     if (hasReadableAckPkts() || m_numOutOfOrderPackets <= 0 || m_iFirstReadableOutOfOrder >= 0)
         return;
 
-    if (m_iMaxPos == 0)
+    if (m_iMaxPosInc == 0)
         return;
 
     int outOfOrderPktsRemain = m_numOutOfOrderPackets;
 
     // Search further packets to the right.
     // First check if there are packets to the right.
-    const int lastPos = (m_iLastAckPos + m_iMaxPos - 1) % m_size;
+    const int lastPos = (m_iStartPos + m_iMaxPosInc - 1) % m_szSize;
 
     int posFirst = -1;
     int posLast  = -1;
@@ -537,7 +487,7 @@ int CRcvBuffer2::scanNotInOrderMessageRight(const int startPos, int msgNo) const
 {
     // Search further packets to the right.
     // First check if there are packets to the right.
-    const int lastPos = (m_iLastAckPos + m_iMaxPos - 1) % m_size;
+    const int lastPos = (m_iStartPos + m_iMaxPosInc - 1) % m_szSize;
     if (startPos == lastPos)
         return -1;
 
@@ -674,41 +624,6 @@ void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
         m_bTsbPdWrapCheck = true;
         // tslog.Debug("tsbpd wrap period begins");
     }
-}
-
-void CRcvBuffer2::updateState(uint64_t time_now)
-{
-    if (!m_bTLPktDrop)
-        return;
-
-    // Do nothing if there are unread packets.
-    if (m_iStartPos != m_iLastAckPos)
-        return;
-
-    // Do nothing if there are no unacknowledged packets
-    if (m_iMaxPos == 0)
-        return;
-
-    // Nothing to drop
-    if (m_pUnit[m_iLastAckPos] != NULL)
-        return;
-
-    int i;
-    const int end_pos = (m_iLastAckPos + m_iMaxPos) % m_size;
-    for (i = m_iLastAckPos; i != end_pos; i = incPos(i))
-    {
-        if (m_pUnit[i])
-            break;
-    }
-
-    SRT_ASSERT(m_pUnit[i]);
-
-    const CPacket& pkt = m_pUnit[i]->m_Packet;
-    if (getPktTsbPdTime(pkt.getMsgTimeStamp()) > time_now)
-        return;
-
-    m_iFirstUnreadablePos = i;
-    ack(m_pUnit[i]->m_Packet.getSeqNo());
 }
 
 uint64_t CRcvBuffer2::getPktTsbPdTime(uint32_t timestamp) const

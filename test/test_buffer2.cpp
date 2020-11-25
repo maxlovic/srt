@@ -50,7 +50,7 @@ TEST(CRcvBuffer2, FullBuffer)
     EXPECT_EQ(rcv_buffer.insert(unit), -1);
 
     // Acknowledge data
-    rcv_buffer.ack(initial_seqno + buffer_size_pkts - 1);
+    //rcv_buffer.ack(initial_seqno + buffer_size_pkts - 1);
     EXPECT_EQ(rcv_buffer.getAvailBufSize(), 0);
 
     // Try to add a unit with sequence number that was already acknowledged.
@@ -140,7 +140,7 @@ TEST(CRcvBuffer2, OneMessageInSeveralPackets)
         EXPECT_EQ(rcv_buffer.insert(unit), 0);
         EXPECT_FALSE(rcv_buffer.canRead());
 
-        rcv_buffer.ack(packet.m_iSeqNo + 1);
+        //rcv_buffer.ack(packet.m_iSeqNo + 1);
 
         EXPECT_EQ(rcv_buffer.canRead(), is_last_packet);
         //EXPECT_EQ(rcv_buffer.countReadable(), is_last_packet ? message_len_in_pkts : 0);

@@ -3,72 +3,51 @@
 #include "queue.h"
 #include "sync.h"
 
-//
-// TODO: Use enum class if C++11 is available.
-//
-
-
 /*
-*   RcvBuffer2 (circular buffer):
+*   Receiver buffer (circular buffer):
 *
 *   |<------------------- m_iSize ----------------------------->|
-*   |       |<--- acked pkts -->|<--- m_iMaxPos --->|           |
-*   |       |                   |                   |           |
+*   |       |<------------ m_iMaxPosInc ----------->|           |
+*   |       |                                       |           |
 *   +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
 *   | 0 | 0 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 0 | 1 | 0 |...| 0 | m_pUnit[]
 *   +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
-*             |                 | |               |
-*             |                   |               \__last pkt received
-*             |                   \___ m_iLastAckPos: last ack sent
+*             |                                   |
+*             |                                   \__last pkt received
+*             |
 *             \___ m_iStartPos: first message to read
 *
-*   m_pUnit[i]->m_iFlag: 0:free, 1:good, 2:passack, 3:dropped
+*   m_pUnit[i]->status_: 0: free, 1: good, 2: read, 3: dropped (can be combined with read?)
 *
 *   thread safety:
-*    m_iStartPos:   CUDT::m_RecvLock
-*    m_iLastAckPos: CUDT::m_AckLock
-*    m_iMaxPos:     none? (modified on add and ack
+*    start_pos_:      CUDT::m_RecvLock
+*    first_unack_pos_:    CUDT::m_AckLock
+*    max_pos_inc_:        none? (modified on add and ack
+*    first_nonread_pos_:
 */
 
 
 class CRcvBuffer2
 {
-
 public:
-
-
     CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue *unitqueue);
 
     ~CRcvBuffer2();
 
-
 public:
-
-
     /// Insert a unit into the buffer.
     /// Similar to CRcvBuffer::addData(CUnit* unit, int offset)
     ///
     /// @param [in] unit pointer to a data unit containing new packet
     /// @param [in] offset offset from last ACK point.
     ///
-    /// @return  0 on success, -1 if packet is already in buffer, -2 if packet is before m_iLastAckSeqNo.
+    /// @return  0 on success, -1 if packet is already in buffer, -2 if packet is before m_iStartSeqNo.
     int insert(CUnit* unit);
 
-    /// Aknowledge up to seqno.
-    /// Update the ACK point of the buffer.
-    ///
-    /// @param [in] seqno acknowledge up to the sequence number
-    /// 
-    /// TODO: Should call CTimer::triggerEvent() in the end.
-    /// TODO: Drop first missing packets?
-    void ack(int32_t seqno);
-
-
-    /// Drop packets in the receiver buffer up to the seqno
+    /// Drop packets in the receiver buffer up to the seqno (excluding seqno).
     /// @param [in] seqno drop units up to this sequence number
     ///
-    void dropMissing(int32_t seqno);
-
+    void dropUpTo(int32_t seqno);
 
     /// Read the whole message from one or several packets.
     ///
@@ -76,10 +55,9 @@ public:
     /// @param [in] len size of the buffer.
     /// @param [out] tsbpdtime localtime-based (uSec) packet time stamp including buffering delay
     ///
-    /// @return actuall number of bytes extracted from the buffer.
+    /// @return actual number of bytes extracted from the buffer.
     ///         -1 on failure.
     int readMessage(char* data, size_t len);
-
 
 public:
 
@@ -92,7 +70,6 @@ public:
     /// @param [out] tsbpdtime localtime-based (uSec) packet time stamp including buffering delay
     /// @return size of valid (continous) data for reading.
     int getRcvDataSize() const;
-
 
     /// Get information on the 1st message in queue.
     /// Similar to CRcvBuffer::getRcvFirstMsg
@@ -108,7 +85,6 @@ public:
     struct PacketInfo
     {
         int seqno;
-        bool acknowledged;  ///< true if the packet is acknowleged (allowed to be delivered to the app)
         bool seq_gap;       ///< true if there are missnig packets in the buffer, preceding current packet
         uint64_t tsbpd_time;
     };
@@ -119,31 +95,23 @@ public:
     /// Used to determine how many packets can be acknowledged.
     //int getLatestReadReadyPacket() const;
 
-
-    bool canAck() const;
-
     size_t countReadable() const;
 
     bool canRead(uint64_t time_now = 0) const;
 
-
 public: // Used for testing
-
-
     /// Peek unit in position of seqno
     const CUnit* peek(int32_t seqno);
 
-
 private:
-
-    inline int incPos(int pos) const { return (pos + 1) % m_size; }
-    inline int decPos(int pos) const { return (pos - 1) >= 0 ? (pos - 1) : (m_size - 1); }
+    inline int incPos(int pos, int inc = 1) const { return (pos + inc) % m_szSize; }
+    inline int decPos(int pos) const { return (pos - 1) >= 0 ? (pos - 1) : (m_szSize - 1); }
 
 private:
     void countBytes(int pkts, int bytes, bool acked = false);
-    void updateReadablePos();
+    void updateNonreadPos();
 
-    bool hasReadableAckPkts() const { return (m_iFirstUnreadablePos != m_iStartPos); }
+    bool hasReadableAckPkts() const { return (m_iFirstNonreadPos != m_iStartPos); }
 
     /// Find position of the last packet of the message.
     /// 
@@ -155,39 +123,22 @@ private:
     int  scanNotInOrderMessageRight(int startPos, int msgNo) const;
     int  scanNotInOrderMessageLeft(int startPos, int msgNo) const;
 
-
-public:
-
-    enum Events
-    {
-        AVAILABLE_TO_READ,	// 
-
-    };
-
-public:
-
-
 private:
-
-    CUnit** m_pUnit;                     // pointer to the buffer
-    const size_t m_size;                 // size of the buffer
+    // TODO: maybe use std::vector?
+    CUnit** m_pUnit;                     // pointer to the array of units (buffer)
+    const size_t m_szSize;               // size of the array of units (buffer)
     CUnitQueue* m_pUnitQueue;            // the shared unit queue
 
-    int m_iLastAckSeqNo;
+    int m_iStartSeqNo;
     int m_iStartPos;                     // the head position for I/O (inclusive)
-    int m_iLastAckPos;                   // the last ACKed position (exclusive)
-                                         // EMPTY: m_iStartPos = m_iLastAckPos   FULL: m_iStartPos = m_iLastAckPos + 1
-    int m_iFirstUnreadablePos;           // First position that can't be read (<= m_iLastAckPos)
-    // TODO: rename to m_iNumUnackPackets
-    int m_iMaxPos;                       // the furthest data position
+    int m_iFirstNonreadPos;              // First position that can't be read (<= m_iLastAckPos)
+    int m_iMaxPosInc;                    // the furthest data position
     int m_iNotch;                        // the starting read point of the first unit
 
     size_t m_numOutOfOrderPackets;       // The number of stored packets with "inorder" flag set to false
     int m_iFirstReadableOutOfOrder;      // In case of out ouf order packet, points to a position of the first such packet to read
 
-
 public:     // TSBPD public functions
-
     /// Set TimeStamp-Based Packet Delivery Rx Mode
     /// @param [in] timebase localtime base (uSec) of packet time stamps including buffering delay
     /// @param [in] delay aggreed TsbPD delay
@@ -196,17 +147,12 @@ public:     // TSBPD public functions
     /// @return 0
     void setTsbPdMode(uint64_t timebase, uint32_t delay, bool tldrop);
 
-    /// TODO
-    /// In TSBPD mode drop late packets from the buffer.
-    void updateState(uint64_t time_now);
-
     uint64_t getPktTsbPdTime(uint32_t timestamp) const;
 
     uint64_t getTsbPdTimeBase(uint32_t timestamp) const;
     void updateTsbPdTimeBase(uint32_t timestamp);
 
 private:    // TSBPD member variables
-
     bool m_bTLPktDrop;                   // true: drop too late packets
     bool m_bTsbPdMode;                   // true: apply TimeStamp-Based Rx Mode
     uint32_t m_uTsbPdDelay;              // aggreed delay
