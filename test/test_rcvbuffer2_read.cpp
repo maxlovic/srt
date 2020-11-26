@@ -77,7 +77,6 @@ public:
             EXPECT_TRUE(packet.getMsgOrderFlag());
         }
 
-        m_unit_queue->makeUnitGood(unit);
         return m_rcv_buffer->insert(unit);
     }
 

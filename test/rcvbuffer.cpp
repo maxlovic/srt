@@ -114,8 +114,7 @@ void CRcvBuffer2::dropUpTo(int32_t seqno)
 {
     // Can drop only when nothing to read, and 
     // first unacknowledged packet is missing.
-    SRT_ASSERT(m_iLastAckPos == m_iFirstNonreadPos);
-    SRT_ASSERT(m_iLastAckPos == m_iStartPos);
+    SRT_ASSERT(m_iStartPos == m_iFirstNonreadPos);
 
     int len = CSeqNo::seqoff(m_iStartSeqNo, seqno);
     SRT_ASSERT(len > 0);
@@ -188,9 +187,11 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
         if (updateStartPos)
         {
             CUnit* tmp = m_pUnit[i];
+            m_iStartPos = incPos(i);
+            m_iStartSeqNo = CSeqNo::incseq(tmp->m_Packet.getSeqNo());
+
             m_pUnit[i] = NULL;
             m_pUnitQueue->makeUnitFree(tmp);
-            m_iStartPos = incPos(i);
         }
         else
         {
