@@ -29,6 +29,8 @@
 
 class CRcvBuffer2
 {
+    typedef srt::sync::steady_clock::time_point time_point;
+    typedef srt::sync::steady_clock::duration duration;
 public:
     CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue *unitqueue);
 
@@ -86,7 +88,7 @@ public:
     {
         int seqno;
         bool seq_gap;       ///< true if there are missnig packets in the buffer, preceding current packet
-        uint64_t tsbpd_time;
+        time_point tsbpd_time;
     };
 
     PacketInfo getFirstValidPacketInfo() const;
@@ -97,7 +99,7 @@ public:
 
     size_t countReadable() const;
 
-    bool canRead(uint64_t time_now = 0) const;
+    bool canRead(time_point time_now = time_point()) const;
 
 public: // Used for testing
     /// Peek unit in position of seqno
@@ -141,22 +143,22 @@ private:
 public:     // TSBPD public functions
     /// Set TimeStamp-Based Packet Delivery Rx Mode
     /// @param [in] timebase localtime base (uSec) of packet time stamps including buffering delay
+    /// @param [in] wrap Is in wrapping period
     /// @param [in] delay aggreed TsbPD delay
-    /// @param [in] tldrop TL packet drop enabled
+    /// @param [in] drift Initial drift value
     ///
     /// @return 0
-    void setTsbPdMode(uint64_t timebase, uint32_t delay, bool tldrop);
+    void setTsbPdMode(const time_point& timebase, bool wrap, uint32_t delay, const duration& drift);
 
-    uint64_t getPktTsbPdTime(uint32_t timestamp) const;
+    time_point getPktTsbPdTime(uint32_t timestamp) const;
 
-    uint64_t getTsbPdTimeBase(uint32_t timestamp) const;
+    time_point getTsbPdTimeBase(uint32_t timestamp) const;
     void updateTsbPdTimeBase(uint32_t timestamp);
 
 private:    // TSBPD member variables
-    bool m_bTLPktDrop;                   // true: drop too late packets
     bool m_bTsbPdMode;                   // true: apply TimeStamp-Based Rx Mode
-    uint32_t m_uTsbPdDelay;              // aggreed delay
-    uint64_t m_ullTsbPdTimeBase;         // localtime base for TsbPd mode
+    duration m_tdTsbPdDelay;             // aggreed delay
+    time_point m_tsTsbPdTimeBase;        // localtime base for TsbPd mode
     // Note: m_ullTsbPdTimeBase cumulates values from:
     // 1. Initial SRT_CMD_HSREQ packet returned value diff to current time:
     //    == (NOW - PACKET_TIMESTAMP), at the time of HSREQ reception

@@ -309,7 +309,6 @@ public:
 
 
 public:
-
       /// Write data into the buffer.
       /// @param [in] unit pointer to a data unit containing new packet
       /// @param [in] offset offset from last ACK point.

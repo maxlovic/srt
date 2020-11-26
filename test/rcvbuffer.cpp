@@ -6,6 +6,7 @@ using namespace srt_logging;
 namespace srt_logging
 {
     extern Logger brlog;
+    extern Logger tslog;
 }
 #define rbuflog brlog
 
@@ -46,10 +47,7 @@ CRcvBuffer2::CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     , m_iNotch(0)
     , m_numOutOfOrderPackets(0)
     , m_iFirstReadableOutOfOrder(-1)
-    , m_bTLPktDrop(false)
     , m_bTsbPdMode(false)
-    , m_uTsbPdDelay(0)
-    , m_ullTsbPdTimeBase(0)
     , m_bTsbPdWrapCheck(false)
     , m_iBytesCount(0)
     , m_iAckedPktsCount(0)
@@ -250,7 +248,7 @@ size_t CRcvBuffer2::countReadable() const
     return m_szSize + m_iFirstNonreadPos - m_iStartPos;
 }
 
-bool CRcvBuffer2::canRead(uint64_t time_now) const
+bool CRcvBuffer2::canRead(time_point time_now) const
 {
     const bool haveAckedPackets = hasReadableAckPkts();
     if (!m_bTsbPdMode)
@@ -547,33 +545,33 @@ int CRcvBuffer2::scanNotInOrderMessageLeft(const int startPos, int msgNo) const
 }
 
 
-void CRcvBuffer2::setTsbPdMode(uint64_t timebase, uint32_t delay, bool tldrop)
+void CRcvBuffer2::setTsbPdMode(const steady_clock::time_point& timebase, bool wrap, uint32_t delay, const steady_clock::duration& drift)
 {
     m_bTsbPdMode      = true;
-    m_bTLPktDrop      = tldrop;
-    m_bTsbPdWrapCheck = false;
+    m_bTsbPdWrapCheck = wrap;
 
     // Timebase passed here comes is calculated as:
     // >>> CTimer::getTime() - ctrlpkt->m_iTimeStamp
     // where ctrlpkt is the packet with SRT_CMD_HSREQ message.
     //
     // This function is called in the HSREQ reception handler only.
-    m_ullTsbPdTimeBase = timebase;
+    m_tsTsbPdTimeBase = timebase;
     // XXX Seems like this may not work correctly.
     // At least this solution this way won't work with application-supplied
     // timestamps. For that case the timestamps should be taken exclusively
     // from the data packets because in case of application-supplied timestamps
     // they come from completely different server and undergo different rules
     // of network latency and drift.
-    m_uTsbPdDelay = delay;
+    m_tdTsbPdDelay = microseconds_from(delay);
+    m_DriftTracer.forceDrift(count_microseconds(drift));
 }
 
-uint64_t CRcvBuffer2::getTsbPdTimeBase(uint32_t timestamp) const
+CRcvBuffer2::time_point CRcvBuffer2::getTsbPdTimeBase(uint32_t timestamp_us) const
 {
-    const uint64_t carryover =
-        (m_bTsbPdWrapCheck && timestamp < TSBPD_WRAP_PERIOD) ? uint64_t(CPacket::MAX_TIMESTAMP) + 1 : 0;
+    const uint64_t carryover_us =
+        (m_bTsbPdWrapCheck && timestamp_us < TSBPD_WRAP_PERIOD) ? uint64_t(CPacket::MAX_TIMESTAMP) + 1 : 0;
 
-    return (m_ullTsbPdTimeBase + carryover);
+    return (m_tsTsbPdTimeBase + microseconds_from(carryover_us));
 }
 
 void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
@@ -611,7 +609,7 @@ void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
         {
             /* Exiting wrap check period (if for packet delivery head) */
             m_bTsbPdWrapCheck = false;
-            m_ullTsbPdTimeBase += uint64_t(CPacket::MAX_TIMESTAMP) + 1;
+            m_tsTsbPdTimeBase += microseconds_from(int64_t(CPacket::MAX_TIMESTAMP) + 1);
             // tslog.Debug("tsbpd wrap period ends");
         }
         return;
@@ -626,7 +624,7 @@ void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
     }
 }
 
-uint64_t CRcvBuffer2::getPktTsbPdTime(uint32_t timestamp) const
+CRcvBuffer2::time_point CRcvBuffer2::getPktTsbPdTime(uint32_t timestamp) const
 {
-    return (getTsbPdTimeBase(timestamp) + m_uTsbPdDelay + timestamp + m_DriftTracer.drift());
+    return (getTsbPdTimeBase(timestamp) + m_tdTsbPdDelay + microseconds_from(timestamp) + microseconds_from(m_DriftTracer.drift()));
 }

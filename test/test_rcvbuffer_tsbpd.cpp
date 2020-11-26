@@ -4,12 +4,15 @@
 #include <numeric>
 
 #include "rcvbuffer.h"
+#include "sync.h"
 
 using namespace std;
+#if 0
 
 class TestRcvBufferTSBPD
     : public ::testing::Test
 {
+    using steady_clock = srt::sync::steady_clock;
 protected:
     TestRcvBufferTSBPD()
     {
@@ -31,7 +34,7 @@ protected:
         m_unit_queue->init(m_buff_size_pkts, 1500, AF_INET);
         //m_rcv_buffer = make_unique<CRcvBuffer2>(m_init_seqno, m_buff_size_pkts);
         m_rcv_buffer = unique_ptr<CRcvBuffer2>(new CRcvBuffer2(m_init_seqno, m_buff_size_pkts, m_unit_queue.get()));
-        m_rcv_buffer->setTsbPdMode(m_peer_start_time_us, m_delay_us, true);
+        //m_rcv_buffer->setTsbPdMode(m_tsbpd_base, false, m_delay, steady_clock::duration(0));
     }
 
     void TearDown() override
@@ -48,8 +51,9 @@ protected:
     unique_ptr<CRcvBuffer2> m_rcv_buffer;
     const int m_buff_size_pkts = 16;
     const int m_init_seqno = 1000;
-    const uint64_t m_peer_start_time_us = 100000;  // now() - HS.timestamp, microseconds
-    const uint64_t m_delay_us = 200000; // 200 ms
+
+    const steady_clock::time_point m_tsbpd_base = steady_clock::now(); // now() - HS.timestamp, microseconds
+    const steady_clock::duration m_delay = srt::sync::milliseconds_from(200);
 };
 
 
@@ -185,4 +189,4 @@ TEST_F(TestRcvBufferTSBPD, ReadMessage)
 /// So those missing packets should be removed from the receiver's loss list, and the receiver's buffer
 /// has to skip m_iStartPos and m_iLastAckPos up to that packet.
 
-
+#endif
