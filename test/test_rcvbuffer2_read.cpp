@@ -370,61 +370,30 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderDrop)
     EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
 }
 
-/// One message (4 packets) is added to the buffer after a gap. Can be read out of order.
-/// Reading should be possible even before full ACK of the whole message.
-TEST_F(TestRcvBuffer2Read, MsgNotAckOutOfOrderGap)
-{
-    const size_t msg_pkts = 4;
-    // 1. Add one message (4 packets) without acknowledging
-    addMessage(msg_pkts, m_init_seqno + 1, true);
-    EXPECT_TRUE(m_rcv_buffer->canRead());
-
-    // 2. Read full unacknowledged message.
-    const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
-    std::array<char, 2 * msg_bytelen> buff;
-    int                               res = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(res, msg_bytelen);
-    for (size_t i = 0; i < msg_pkts; ++i)
-    {
-        EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + 1 + i));
-    }
-
-    // 3. Further read is not possible, but those packets can be acknowledged.
-    //EXPECT_TRUE(m_rcv_buffer->canAck());
-    EXPECT_FALSE(m_rcv_buffer->canRead());
-}
-
-/// One message (4 packets) is added to the buffer after a packet with in order flag. Can be read out of order.
-/// Reading should be possible even before full ACK of the whole message.
-TEST_F(TestRcvBuffer2Read, MsgNotAckOutOfOrderAfterInOrder)
+// One message (4 packets) is added to the buffer after a message with "in order" flag.
+// Read in order
+TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAfterInOrder)
 {
     const size_t msg_pkts = 4;
     // 1. Add one packet with inOrder=true and one message (4 packets) with inOrder=false
-    addMessage(msg_pkts, m_init_seqno, false);
-    addMessage(msg_pkts, m_init_seqno + msg_pkts, true);
-    addMessage(msg_pkts, m_init_seqno + 2 * msg_pkts + 1, true);
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + 2 * msg_pkts, true), 0);
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), 0);
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + msg_pkts, true), 0);
     EXPECT_TRUE(m_rcv_buffer->canRead());
 
-    // 2. Read full unacknowledged message.
+    // 2. Read messages in order
+
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
     std::array<char, 2 * msg_bytelen> buff;
-    int                               res = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(res, msg_bytelen);
-    for (size_t i = 0; i < msg_pkts; ++i)
+    for (int msg_i = 0; msg_i < 3; ++msg_i)
     {
-        EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + msg_pkts + i));
+        EXPECT_TRUE(m_rcv_buffer->canRead());
+        EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
+        for (size_t i = 0; i < msg_pkts; ++i)
+        {
+            EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + msg_i * msg_pkts + i));
+        }    
     }
 
-    // 3. Read the second out of order message
-    EXPECT_TRUE(m_rcv_buffer->canRead());
-    res = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(res, msg_bytelen);
-    for (size_t i = 0; i < msg_pkts; ++i)
-    {
-        EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + 2 * msg_pkts + 1 + i));
-    }
-
-    // 4. Further read is not possible
-    //EXPECT_TRUE(m_rcv_buffer->canAck());
     EXPECT_FALSE(m_rcv_buffer->canRead());
 }
