@@ -314,7 +314,7 @@ void CRcvBuffer2::updateNonreadPos()
     const int last_pos =  incPos(m_iStartPos, m_iMaxPosInc);
 
     int pos = m_iFirstNonreadPos;
-    while (m_pUnit[pos]->m_iFlag == CUnit::GOOD && (m_pUnit[pos]->m_Packet.getMsgBoundary() & PB_FIRST))
+    while (m_pUnit[pos] && m_pUnit[pos]->m_iFlag == CUnit::GOOD && (m_pUnit[pos]->m_Packet.getMsgBoundary() & PB_FIRST))
     {
         // bool good = true;
 

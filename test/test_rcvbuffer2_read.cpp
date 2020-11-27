@@ -175,10 +175,8 @@ TEST_F(TestRcvBuffer2Read, OnePacketTSBPD)
     
     const unsigned delay_us = count_microseconds(m_delay);
     m_rcv_buffer->setTsbPdMode(m_tsbpd_base, false, delay_us, steady_clock::duration(0));
-    //enable_tsbpd();
 
     const int packet_ts = 0;
-
     // Adding one message. Note that all packets are out of order in TSBPD mode.
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, true, packet_ts), 0);
 
@@ -212,40 +210,59 @@ TEST_F(TestRcvBuffer2Read, OnePacketTSBPD)
 /// | 0 | 1 |   0 | 0 | 0 | 0 |...| 0 | m_pUnit[]
 /// +---+---+  ---+---+---+---+   +---+
 ///   \    \
-/// 2. ack  |
-/// 3. ack -^
-/// 4. read
+/// 2. read
 ///
-TEST_F(TestRcvBuffer2Read, OnePacketAfterGap)
+TEST_F(TestRcvBuffer2Read, OnePacketAfterGapDrop)
 {
     const size_t msg_pkts = 1;
     // 1. Add one message (1 packet) without acknowledging
     // with a gap of one packet.
-    addMessage(msg_pkts, m_init_seqno + 1, false);
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + 1, false), 0);
     EXPECT_FALSE(m_rcv_buffer->canRead()) << "No packet to read at this point";
 
     // 2. Try to read message. Expect to get an error due to the missing first packet.
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
     std::array<char, 2 * msg_bytelen> buff;
-    int                               read_len = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(read_len, -1) << "No packet to read due to the gap";
+    EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), -1) << "No packet to read due to the gap";
 
-    // 3. ACK first missing packet.
-    // canRead should return false. Read attempt should fail.
-    //EXPECT_FALSE(m_rcv_buffer->canAck());
+    const auto next_packet = m_rcv_buffer->getFirstValidPacketInfo();
+    EXPECT_EQ(next_packet.seqno, m_init_seqno + 1);
 
-    m_rcv_buffer->dropUpTo(m_init_seqno + 1);
-    EXPECT_FALSE(m_rcv_buffer->canRead()) << "Only one nonexistent packet is acknowledged";
-    read_len = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(read_len, -1);
+    m_rcv_buffer->dropUpTo(next_packet.seqno);
 
-    // 4. ACK first existing packet.
-    // Now can read one packet from the buffer.
-    //m_rcv_buffer->ack(m_init_seqno + 2);
     EXPECT_TRUE(m_rcv_buffer->canRead());
-    read_len = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(read_len, msg_bytelen);
-    EXPECT_TRUE(verifyPayload(buff.data(), read_len, m_init_seqno + 1));
+    EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
+    EXPECT_TRUE(verifyPayload(buff.data(), msg_bytelen, m_init_seqno + 1));
+
+    EXPECT_FALSE(m_rcv_buffer->canRead());
+}
+
+// The same as above, but a missing packet is added to the buffer.
+TEST_F(TestRcvBuffer2Read, OnePacketAfterGapAdd)
+{
+    const size_t msg_pkts = 1;
+    // 1. Add one message (1 packet) without acknowledging
+    // with a gap of one packet.
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + 1, false), 0);
+    EXPECT_FALSE(m_rcv_buffer->canRead()) << "No packet to read at this point";
+
+    // 2. Try to read message. Expect to get an error due to the missing first packet.
+    const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
+    std::array<char, 2 * msg_bytelen> buff;
+    EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), -1) << "No packet to read due to the gap";
+
+    const auto next_packet = m_rcv_buffer->getFirstValidPacketInfo();
+    EXPECT_EQ(next_packet.seqno, m_init_seqno + 1);
+
+    // Add a missing packet
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), 0);
+
+    for (int pktno = 0; pktno < 2; ++pktno)
+    {
+        EXPECT_TRUE(m_rcv_buffer->canRead());
+        EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
+        EXPECT_TRUE(verifyPayload(buff.data(), msg_bytelen, m_init_seqno + pktno));
+    }
 
     // 5. Further read is not possible
     //EXPECT_FALSE(m_rcv_buffer->canAck());
