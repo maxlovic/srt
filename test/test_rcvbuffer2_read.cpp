@@ -43,6 +43,7 @@ protected:
     {
         // Code here will be called just after the test completes.
         // OK to throw exceptions from here if needed.
+        EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
         m_unit_queue.reset();
         m_rcv_buffer.reset();
     }
@@ -269,69 +270,67 @@ TEST_F(TestRcvBuffer2Read, OnePacketAfterGapAdd)
     EXPECT_FALSE(m_rcv_buffer->canRead());
 }
 
-/// One message (4 packets) are added to the buffer.
-/// Check if reading is only possible after full ACK of the whole message.
-TEST_F(TestRcvBuffer2Read, MsgPartialAck)
+// One message (4 packets) are added to the buffer.
+// Check if reading is only possible once the whole message is present in the buffer.
+TEST_F(TestRcvBuffer2Read, LongMessage)
 {
     const size_t msg_pkts = 4;
     // 1. Add one message (4 packets) without acknowledging
-    addMessage(msg_pkts, m_init_seqno, false);
-    EXPECT_FALSE(m_rcv_buffer->canRead());
-
-    // 2. Confirm reading is not allowed.
-    const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
-    std::array<char, 2 * msg_bytelen> buff;
-    int                               res = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(res, -1);
-
-    // 3. Acknowledge half of the message.
-    // Can read only fully acknowledged message.
-    //EXPECT_TRUE(m_rcv_buffer->canAck());
-    //m_rcv_buffer->ack(m_init_seqno + 1);
-    EXPECT_FALSE(m_rcv_buffer->canRead());
-    res = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(res, -1);
-
-    // 4. Acknowledge full message. Can read.
-    //EXPECT_TRUE(m_rcv_buffer->canAck());
-    //m_rcv_buffer->ack(m_init_seqno + msg_pkts);
+    EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), 0);
     EXPECT_TRUE(m_rcv_buffer->canRead());
 
-    res = m_rcv_buffer->readMessage(buff.data(), buff.size());
-    EXPECT_EQ(res, msg_bytelen);
+    const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
+    std::array<char, 2 * msg_bytelen> buff;
+
+    // TODO: Check reading if insufficient space
+    //EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), m_payload_sz), -1);
+    //EXPECT_TRUE(m_rcv_buffer->canRead());
+
+    EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
     for (size_t i = 0; i < msg_pkts; ++i)
     {
         EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + i));
     }
 
-    // 5. Further read is not possible
-    //EXPECT_FALSE(m_rcv_buffer->canAck());
     EXPECT_FALSE(m_rcv_buffer->canRead());
 }
 
 /// One message (4 packets) are added to the buffer. Can be read out of order.
 /// Reading should be possible even before full ACK of the whole message.
-TEST_F(TestRcvBuffer2Read, MsgNotAckOutOfOrder)
+TEST_F(TestRcvBuffer2Read, MsgOutOfOrder)
 {
     const size_t msg_pkts = 4;
     // 1. Add one message (4 packets) without acknowledging
-    addMessage(msg_pkts, m_init_seqno, true);
+    const int msg_seqno = m_init_seqno + 1; // seqno of the first packet in the message
+    EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), 0);
     EXPECT_TRUE(m_rcv_buffer->canRead());
-    //EXPECT_TRUE(m_rcv_buffer->canAck());
 
-    // 2. Read full unacknowledged message.
+    // 2. Read full message after gap.
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
     std::array<char, 2 * msg_bytelen> buff;
     int                               res = m_rcv_buffer->readMessage(buff.data(), buff.size());
     EXPECT_EQ(res, msg_bytelen);
     for (size_t i = 0; i < msg_pkts; ++i)
     {
-        EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + i));
+        EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, msg_seqno + i));
     }
 
-    // 3. Further read is not possible
-    //EXPECT_TRUE(m_rcv_buffer->canAck());
     EXPECT_FALSE(m_rcv_buffer->canRead());
+
+    // Can't add to the same message
+    EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), -1);
+
+    // Add missing packet
+    EXPECT_EQ(addMessage(1, m_init_seqno, true), 0);
+    EXPECT_TRUE(m_rcv_buffer->canRead());
+
+    const size_t  one_msg_bytelen = m_payload_sz; // Assertion of a static variable m_payload_sz results in linking error
+    EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), one_msg_bytelen);
+    EXPECT_TRUE(verifyPayload(buff.data(), one_msg_bytelen, m_init_seqno));
+    EXPECT_FALSE(m_rcv_buffer->canRead());
+
+    // All memory usits are expected to be freed.
+    EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
 }
 
 /// One message (4 packets) is added to the buffer after a gap. Can be read out of order.

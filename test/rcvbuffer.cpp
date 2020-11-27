@@ -143,14 +143,14 @@ void CRcvBuffer2::dropUpTo(int32_t seqno)
 
 int CRcvBuffer2::readMessage(char *data, size_t len)
 {
-    const bool readAcknowledged = hasReadableAckPkts();
-    if (!readAcknowledged && m_iFirstReadableOutOfOrder < 0)
+    const bool canReadInOrder = hasReadableInorderPkts();
+    if (!canReadInOrder && m_iFirstReadableOutOfOrder < 0)
     {
-        LOGC(rbuflog.Error, log << "CRcvBuffer2.readMessage(): nothing to read. Ignored canRead() result?");
+        LOGC(rbuflog.Warn, log << "CRcvBuffer2.readMessage(): nothing to read. Ignored canRead() result?");
         return -1;
     }
 
-    const int readPos = readAcknowledged ? m_iStartPos : m_iFirstReadableOutOfOrder;
+    const int readPos = canReadInOrder ? m_iStartPos : m_iFirstReadableOutOfOrder;
 
     size_t remain     = len;
     char * dst        = data;
@@ -207,7 +207,12 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
     }
 
     countBytes(-pkts_read, -bytes_read, true);
-    updateFirstReadableOutOfOrder();
+    if (!updateStartPos)
+        updateFirstReadableOutOfOrder();
+
+    releasePassackUnits();
+    m_iFirstNonreadPos = m_iStartPos;
+    updateNonreadPos();
 
     return (dst - data);
 }
@@ -251,7 +256,7 @@ size_t CRcvBuffer2::countReadable() const
 
 bool CRcvBuffer2::canRead(time_point time_now) const
 {
-    const bool haveAckedPackets = hasReadableAckPkts();
+    const bool haveAckedPackets = hasReadableInorderPkts();
     if (!m_bTsbPdMode)
     {
         if (haveAckedPackets)
@@ -294,6 +299,29 @@ void CRcvBuffer2::countBytes(int pkts, int bytes, bool acked)
 
         if (bytes < 0)
             m_iBytesCount += bytes; /* removed bytes from rcv buffer */
+    }
+}
+
+void CRcvBuffer2::releaseUnitInPos(int pos)
+{
+    SRT_ASSERT(m_pUnit[pos]);
+
+    CUnit* tmp = m_pUnit[pos];
+    m_pUnit[pos] = NULL;
+    m_pUnitQueue->makeUnitFree(tmp);
+}
+
+void CRcvBuffer2::releasePassackUnits()
+{
+    const int last_pos = incPos(m_iStartPos, m_iMaxPosInc);
+
+    int pos = m_iStartPos;
+    while (m_pUnit[pos] && m_pUnit[pos]->m_iFlag == CUnit::PASSACK)
+    {
+        m_iStartSeqNo = CSeqNo::incseq(m_pUnit[pos]->m_Packet.getSeqNo());
+        releaseUnitInPos(pos);
+        pos = incPos(pos);
+        m_iStartPos = pos;
     }
 }
 
@@ -422,7 +450,7 @@ void CRcvBuffer2::onInsertNotInOrderPacket(int insertPos)
 
 void CRcvBuffer2::updateFirstReadableOutOfOrder()
 {
-    if (hasReadableAckPkts() || m_numOutOfOrderPackets <= 0 || m_iFirstReadableOutOfOrder >= 0)
+    if (hasReadableInorderPkts() || m_numOutOfOrderPackets <= 0 || m_iFirstReadableOutOfOrder >= 0)
         return;
 
     if (m_iMaxPosInc == 0)

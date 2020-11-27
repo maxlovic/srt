@@ -112,8 +112,10 @@ private:
 private:
     void countBytes(int pkts, int bytes, bool acked = false);
     void updateNonreadPos();
+    void releaseUnitInPos(int pos);
+    void releasePassackUnits();
 
-    bool hasReadableAckPkts() const { return (m_iFirstNonreadPos != m_iStartPos); }
+    bool hasReadableInorderPkts() const { return (m_iFirstNonreadPos != m_iStartPos); }
 
     /// Find position of the last packet of the message.
     /// 
