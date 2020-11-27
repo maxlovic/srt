@@ -1,7 +1,25 @@
-#pragma once
+/*
+ * SRT - Secure, Reliable, Transport
+ * Copyright (c) 2020 Haivision Systems Inc.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+ */
+
+#ifndef INC_SRT_BUFFER_RCV_H
+#define INC_SRT_BUFFER_RCV_H
+
+#if ENABLE_NEW_RCVBUFFER
+
+#include "buffer.h" // AvgBufSize
 #include "common.h"
 #include "queue.h"
 #include "sync.h"
+
+namespace srt {
+
 
 /*
 *   Receiver buffer (circular buffer):
@@ -27,14 +45,14 @@
 */
 
 
-class CRcvBuffer2
+class CRcvBufferNew
 {
     typedef srt::sync::steady_clock::time_point time_point;
     typedef srt::sync::steady_clock::duration duration;
 public:
-    CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue *unitqueue);
+    CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue);
 
-    ~CRcvBuffer2();
+    ~CRcvBufferNew();
 
 public:
     /// Insert a unit into the buffer.
@@ -73,6 +91,9 @@ public:
     /// @return size of valid (continous) data for reading.
     int getRcvDataSize() const;
 
+    /// TODO: To miplement
+    int getRcvDataSize(int& bytes, int& timespan);
+
     /// Get information on the 1st message in queue.
     /// Similar to CRcvBuffer::getRcvFirstMsg
     /// Parameters (of the 1st packet queue, ready to play or not):
@@ -99,7 +120,10 @@ public:
 
     size_t countReadable() const;
 
-    bool canRead(time_point time_now = time_point()) const;
+    bool isRcvDataReady(time_point time_now = time_point()) const;
+
+    int getRcvAvgDataSize(int& bytes, int& timespan);
+    void updRcvAvgDataSize(const time_point& now);
 
 public: // Used for testing
     /// Peek unit in position of seqno
@@ -178,15 +202,16 @@ private:    // TSBPD member variables
     static const uint32_t TSBPD_WRAP_PERIOD = (30 * 1000000);    //30 seconds (in usec)
 
     /// Max drift (usec) above which TsbPD Time Offset is adjusted
-    static const int TSBPD_DRIFT_MAX_VALUE = 5000; 
+    static const int TSBPD_DRIFT_MAX_VALUE = 5000;
     /// Number of samples (UMSG_ACKACK packets) to perform drift caclulation and compensation
-    static const int TSBPD_DRIFT_MAX_SAMPLES = 1000; 
+    static const int TSBPD_DRIFT_MAX_SAMPLES = 1000;
     //int m_iTsbPdDrift;                           // recent drift in the packet time stamp
     //int64_t m_TsbPdDriftSum;                     // Sum of sampled drift
     //int m_iTsbPdDriftNbSamples;                  // Number of samples in sum and histogram
     DriftTracer<TSBPD_DRIFT_MAX_SAMPLES, TSBPD_DRIFT_MAX_VALUE> m_DriftTracer;
 
 private:    // Statistics
+    AvgBufSize m_mavg;
 
     srt::sync::Mutex m_BytesCountLock;   // used to protect counters operations
     int m_iBytesCount;                   // Number of payload bytes in the buffer
@@ -194,10 +219,9 @@ private:    // Statistics
     int m_iAckedBytesCount;              // Number of acknowledged payload bytes in the buffer
     int m_iAvgPayloadSz;                 // Average payload size for dropped bytes estimation
 
-
-
-
 };
 
+} // namespace srt
 
-
+#endif // ENABLE_NEW_RCVBUFFER
+#endif // INC_SRT_BUFFER_RCV_H

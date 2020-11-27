@@ -286,6 +286,7 @@ private:
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#if (!ENABLE_NEW_RCVBUFFER)
 
 class CRcvBuffer
 {
@@ -633,5 +634,6 @@ private:
    CRcvBuffer& operator=(const CRcvBuffer&);
 };
 
+#endif // !ENABLE_NEW_RCVBUFFER
 
 #endif

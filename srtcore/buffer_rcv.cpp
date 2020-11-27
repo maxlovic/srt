@@ -1,4 +1,6 @@
-#include "rcvbuffer.h"
+#if ENABLE_NEW_RCVBUFFER
+
+#include "buffer_rcv.h"
 #include "logging.h"
 
 using namespace srt::sync;
@@ -9,6 +11,8 @@ namespace srt_logging
     extern Logger tslog;
 }
 #define rbuflog brlog
+
+namespace srt {
 
 //
 // TODO: Use enum class if C++11 is available.
@@ -36,7 +40,7 @@ namespace srt_logging
  *    m_iMaxPosInc:     none? (modified on add and ack
  */
 
-CRcvBuffer2::CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue* unitqueue)
+CRcvBufferNew::CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     : m_pUnit(NULL)
     , m_szSize(size)
     , m_pUnitQueue(unitqueue)
@@ -55,12 +59,12 @@ CRcvBuffer2::CRcvBuffer2(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     , m_iAvgPayloadSz(7 * 188)
 {
     SRT_ASSERT(size < INT_MAX); // All position pointers are integers
-    m_pUnit = new CUnit *[m_szSize];
+    m_pUnit = new CUnit * [m_szSize];
     for (size_t i = 0; i < m_szSize; ++i)
         m_pUnit[i] = NULL;
 }
 
-CRcvBuffer2::~CRcvBuffer2()
+CRcvBufferNew::~CRcvBufferNew()
 {
     for (size_t i = 0; i < m_szSize; ++i)
     {
@@ -73,10 +77,10 @@ CRcvBuffer2::~CRcvBuffer2()
     delete[] m_pUnit;
 }
 
-int CRcvBuffer2::insert(CUnit *unit)
+int CRcvBufferNew::insert(CUnit* unit)
 {
     SRT_ASSERT(unit != NULL);
-    const int32_t seqno  = unit->m_Packet.getSeqNo();
+    const int32_t seqno = unit->m_Packet.getSeqNo();
     const int     offset = CSeqNo::seqoff(m_iStartSeqNo, seqno);
 
     if (offset < 0)
@@ -110,7 +114,7 @@ int CRcvBuffer2::insert(CUnit *unit)
     return 0;
 }
 
-void CRcvBuffer2::dropUpTo(int32_t seqno)
+void CRcvBufferNew::dropUpTo(int32_t seqno)
 {
     // Can drop only when nothing to read, and 
     // first unacknowledged packet is missing.
@@ -142,20 +146,20 @@ void CRcvBuffer2::dropUpTo(int32_t seqno)
     updateNonreadPos();
 }
 
-int CRcvBuffer2::readMessage(char *data, size_t len)
+int CRcvBufferNew::readMessage(char* data, size_t len)
 {
     const bool canReadInOrder = hasReadableInorderPkts();
     if (!canReadInOrder && m_iFirstReadableOutOfOrder < 0)
     {
-        LOGC(rbuflog.Warn, log << "CRcvBuffer2.readMessage(): nothing to read. Ignored canRead() result?");
+        LOGC(rbuflog.Warn, log << "CRcvBufferNew.readMessage(): nothing to read. Ignored isRcvDataReady() result?");
         return -1;
     }
 
     const int readPos = canReadInOrder ? m_iStartPos : m_iFirstReadableOutOfOrder;
 
-    size_t remain     = len;
-    char * dst        = data;
-    int    pkts_read  = 0;
+    size_t remain = len;
+    char* dst = data;
+    int    pkts_read = 0;
     int    bytes_read = 0;
     const bool updateStartPos = (readPos == m_iStartPos); // Indicates if the m_iStartPos can be changed
     for (int i = readPos;; i = incPos(i))
@@ -163,7 +167,7 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
         SRT_ASSERT(m_pUnit[i]);
         if (!m_pUnit[i])
         {
-            LOGC(rbuflog.Error, log << "CRcvBuffer2::readMessage(): null packet encountered.");
+            LOGC(rbuflog.Error, log << "CRcvBufferNew::readMessage(): null packet encountered.");
             break;
         }
 
@@ -218,13 +222,13 @@ int CRcvBuffer2::readMessage(char *data, size_t len)
     return (dst - data);
 }
 
-int CRcvBuffer2::getAvailBufSize() const
+int CRcvBufferNew::getAvailBufSize() const
 {
     // One slot must be empty in order to tell the difference between "empty buffer" and "full buffer"
     return m_szSize - getRcvDataSize() - 1;
 }
 
-int CRcvBuffer2::getRcvDataSize() const
+int CRcvBufferNew::getRcvDataSize() const
 {
     if (m_iFirstNonreadPos >= m_iStartPos)
         return m_iFirstNonreadPos - m_iStartPos;
@@ -232,30 +236,38 @@ int CRcvBuffer2::getRcvDataSize() const
     return m_szSize + m_iFirstNonreadPos - m_iStartPos;
 }
 
-CRcvBuffer2::PacketInfo CRcvBuffer2::getFirstValidPacketInfo() const
+int CRcvBufferNew::getRcvDataSize(int& bytes, int& timespan)
 {
-    const int end_pos      = (m_iStartPos + m_iMaxPosInc) % m_szSize;
+    // TODO: to implement
+    bytes = 0;
+    timespan = 0;
+    return 0;
+}
+
+CRcvBufferNew::PacketInfo CRcvBufferNew::getFirstValidPacketInfo() const
+{
+    const int end_pos = (m_iStartPos + m_iMaxPosInc) % m_szSize;
     for (int i = m_iStartPos; i != end_pos; i = incPos(i))
     {
         if (!m_pUnit[i])
             continue;
 
-        const CPacket &  packet = m_pUnit[i]->m_Packet;
-        const PacketInfo info   = {packet.getSeqNo(), i != m_iStartPos, getPktTsbPdTime(packet.getMsgTimeStamp())};
+        const CPacket& packet = m_pUnit[i]->m_Packet;
+        const PacketInfo info = { packet.getSeqNo(), i != m_iStartPos, getPktTsbPdTime(packet.getMsgTimeStamp()) };
         return info;
     }
 
     return PacketInfo();
 }
 
-size_t CRcvBuffer2::countReadable() const
+size_t CRcvBufferNew::countReadable() const
 {
     if (m_iFirstNonreadPos >= m_iStartPos)
         return m_iFirstNonreadPos - m_iStartPos;
     return m_szSize + m_iFirstNonreadPos - m_iStartPos;
 }
 
-bool CRcvBuffer2::canRead(time_point time_now) const
+bool CRcvBufferNew::isRcvDataReady(time_point time_now) const
 {
     const bool haveAckedPackets = hasReadableInorderPkts();
     if (!m_bTsbPdMode)
@@ -274,7 +286,7 @@ bool CRcvBuffer2::canRead(time_point time_now) const
     return info.tsbpd_time <= time_now;
 }
 
-void CRcvBuffer2::countBytes(int pkts, int bytes, bool acked)
+void CRcvBufferNew::countBytes(int pkts, int bytes, bool acked)
 {
     /*
      * Byte counter changes from both sides (Recv & Ack) of the buffer
@@ -303,7 +315,7 @@ void CRcvBuffer2::countBytes(int pkts, int bytes, bool acked)
     }
 }
 
-void CRcvBuffer2::releaseUnitInPos(int pos)
+void CRcvBufferNew::releaseUnitInPos(int pos)
 {
     SRT_ASSERT(m_pUnit[pos]);
 
@@ -312,7 +324,7 @@ void CRcvBuffer2::releaseUnitInPos(int pos)
     m_pUnitQueue->makeUnitFree(tmp);
 }
 
-void CRcvBuffer2::releasePassackUnits()
+void CRcvBufferNew::releasePassackUnits()
 {
     const int last_pos = incPos(m_iStartPos, m_iMaxPosInc);
 
@@ -326,7 +338,7 @@ void CRcvBuffer2::releasePassackUnits()
     }
 }
 
-void CRcvBuffer2::updateNonreadPos()
+void CRcvBufferNew::updateNonreadPos()
 {
     // const PacketBoundary boundary = packet.getMsgBoundary();
 
@@ -340,7 +352,7 @@ void CRcvBuffer2::updateNonreadPos()
     // Check if the gap is filled.
     SRT_ASSERT(m_pUnit[m_iFirstNonreadPos]);
 
-    const int last_pos =  incPos(m_iStartPos, m_iMaxPosInc);
+    const int last_pos = incPos(m_iStartPos, m_iMaxPosInc);
 
     int pos = m_iFirstNonreadPos;
     while (m_pUnit[pos] && m_pUnit[pos]->m_iFlag == CUnit::GOOD && (m_pUnit[pos]->m_Packet.getMsgBoundary() & PB_FIRST))
@@ -389,7 +401,7 @@ void CRcvBuffer2::updateNonreadPos()
     // 2. The simplest case is when this is the first sequntial packet
 }
 
-int CRcvBuffer2::findLastMessagePkt()
+int CRcvBufferNew::findLastMessagePkt()
 {
     for (int i = m_iStartPos; i != m_iFirstNonreadPos; i = incPos(i))
     {
@@ -405,7 +417,7 @@ int CRcvBuffer2::findLastMessagePkt()
 }
 
 
-void CRcvBuffer2::onInsertNotInOrderPacket(int insertPos)
+void CRcvBufferNew::onInsertNotInOrderPacket(int insertPos)
 {
     if (m_numOutOfOrderPackets == 0)
         return;
@@ -423,7 +435,7 @@ void CRcvBuffer2::onInsertNotInOrderPacket(int insertPos)
     // So the should be unacknowledged packets.
     SRT_ASSERT(m_iMaxPosInc > 0);
     SRT_ASSERT(m_pUnit[insertPos]);
-    const CPacket &pkt = m_pUnit[insertPos]->m_Packet;
+    const CPacket& pkt = m_pUnit[insertPos]->m_Packet;
     const PacketBoundary boundary = pkt.getMsgBoundary();
 
     //if ((boundary & PB_FIRST) && (boundary & PB_LAST))
@@ -449,7 +461,7 @@ void CRcvBuffer2::onInsertNotInOrderPacket(int insertPos)
     return;
 }
 
-void CRcvBuffer2::updateFirstReadableOutOfOrder()
+void CRcvBufferNew::updateFirstReadableOutOfOrder()
 {
     if (hasReadableInorderPkts() || m_numOutOfOrderPackets <= 0 || m_iFirstReadableOutOfOrder >= 0)
         return;
@@ -464,8 +476,8 @@ void CRcvBuffer2::updateFirstReadableOutOfOrder()
     const int lastPos = (m_iStartPos + m_iMaxPosInc - 1) % m_szSize;
 
     int posFirst = -1;
-    int posLast  = -1;
-    int msgNo    = -1;
+    int posLast = -1;
+    int msgNo = -1;
 
     for (int pos = m_iStartPos; outOfOrderPktsRemain; pos = incPos(pos))
     {
@@ -511,7 +523,7 @@ void CRcvBuffer2::updateFirstReadableOutOfOrder()
     return;
 }
 
-int CRcvBuffer2::scanNotInOrderMessageRight(const int startPos, int msgNo) const
+int CRcvBufferNew::scanNotInOrderMessageRight(const int startPos, int msgNo) const
 {
     // Search further packets to the right.
     // First check if there are packets to the right.
@@ -543,7 +555,7 @@ int CRcvBuffer2::scanNotInOrderMessageRight(const int startPos, int msgNo) const
     return -1;
 }
 
-int CRcvBuffer2::scanNotInOrderMessageLeft(const int startPos, int msgNo) const
+int CRcvBufferNew::scanNotInOrderMessageLeft(const int startPos, int msgNo) const
 {
     // Search preceeding packets to the left.
     // First check if there are packets to the left.
@@ -575,9 +587,9 @@ int CRcvBuffer2::scanNotInOrderMessageLeft(const int startPos, int msgNo) const
 }
 
 
-void CRcvBuffer2::setTsbPdMode(const steady_clock::time_point& timebase, bool wrap, uint32_t delay, const steady_clock::duration& drift)
+void CRcvBufferNew::setTsbPdMode(const steady_clock::time_point& timebase, bool wrap, uint32_t delay, const steady_clock::duration& drift)
 {
-    m_bTsbPdMode      = true;
+    m_bTsbPdMode = true;
     m_bTsbPdWrapCheck = wrap;
 
     // Timebase passed here comes is calculated as:
@@ -596,7 +608,7 @@ void CRcvBuffer2::setTsbPdMode(const steady_clock::time_point& timebase, bool wr
     m_DriftTracer.forceDrift(count_microseconds(drift));
 }
 
-CRcvBuffer2::time_point CRcvBuffer2::getTsbPdTimeBase(uint32_t timestamp_us) const
+CRcvBufferNew::time_point CRcvBufferNew::getTsbPdTimeBase(uint32_t timestamp_us) const
 {
     const uint64_t carryover_us =
         (m_bTsbPdWrapCheck && timestamp_us < TSBPD_WRAP_PERIOD) ? uint64_t(CPacket::MAX_TIMESTAMP) + 1 : 0;
@@ -604,7 +616,7 @@ CRcvBuffer2::time_point CRcvBuffer2::getTsbPdTimeBase(uint32_t timestamp_us) con
     return (m_tsTsbPdTimeBase + microseconds_from(carryover_us));
 }
 
-void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
+void CRcvBufferNew::updateTsbPdTimeBase(uint32_t timestamp)
 {
     /*
      * Packet timestamps wrap around every 01h11m35s (32-bit in usec)
@@ -616,21 +628,21 @@ void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
      * The wrap check period ends 30 seconds after the wrap point, afterwhich time base has been adjusted.
      */
 
-    // This function should generally return the timebase for the given timestamp.
-    // It's assumed that the timestamp, for which this function is being called,
-    // is received as monotonic clock. This function then traces the changes in the
-    // timestamps passed as argument and catches the moment when the 64-bit timebase
-    // should be increased by a "segment length" (MAX_TIMESTAMP+1).
+     // This function should generally return the timebase for the given timestamp.
+     // It's assumed that the timestamp, for which this function is being called,
+     // is received as monotonic clock. This function then traces the changes in the
+     // timestamps passed as argument and catches the moment when the 64-bit timebase
+     // should be increased by a "segment length" (MAX_TIMESTAMP+1).
 
-    // The checks will be provided for the following split:
-    // [INITIAL30][FOLLOWING30]....[LAST30] <-- == CPacket::MAX_TIMESTAMP
-    //
-    // The following actions should be taken:
-    // 1. Check if this is [LAST30]. If so, ENTER TSBPD-wrap-check state
-    // 2. Then, it should turn into [INITIAL30] at some point. If so, use carryover MAX+1.
-    // 3. Then it should switch to [FOLLOWING30]. If this is detected,
-    //    - EXIT TSBPD-wrap-check state
-    //    - save the carryover as the current time base.
+     // The checks will be provided for the following split:
+     // [INITIAL30][FOLLOWING30]....[LAST30] <-- == CPacket::MAX_TIMESTAMP
+     //
+     // The following actions should be taken:
+     // 1. Check if this is [LAST30]. If so, ENTER TSBPD-wrap-check state
+     // 2. Then, it should turn into [INITIAL30] at some point. If so, use carryover MAX+1.
+     // 3. Then it should switch to [FOLLOWING30]. If this is detected,
+     //    - EXIT TSBPD-wrap-check state
+     //    - save the carryover as the current time base.
 
     if (m_bTsbPdWrapCheck)
     {
@@ -654,7 +666,35 @@ void CRcvBuffer2::updateTsbPdTimeBase(uint32_t timestamp)
     }
 }
 
-CRcvBuffer2::time_point CRcvBuffer2::getPktTsbPdTime(uint32_t timestamp) const
+CRcvBufferNew::time_point CRcvBufferNew::getPktTsbPdTime(uint32_t timestamp) const
 {
     return (getTsbPdTimeBase(timestamp) + m_tdTsbPdDelay + microseconds_from(timestamp) + microseconds_from(m_DriftTracer.drift()));
 }
+
+/* Return moving average of acked data pkts, bytes, and timespan (ms) of the receive buffer */
+int CRcvBufferNew::getRcvAvgDataSize(int& bytes, int& timespan)
+{
+    // Average number of packets and timespan could be small,
+    // so rounding is beneficial, while for the number of
+    // bytes in the buffer is a higher value, so rounding can be omitted,
+    // but probably better to round all three values.
+    timespan = static_cast<int>(round((m_mavg.timespan_ms())));
+    bytes = static_cast<int>(round((m_mavg.bytes())));
+    return static_cast<int>(round(m_mavg.pkts()));
+}
+
+/* Update moving average of acked data pkts, bytes, and timespan (ms) of the receive buffer */
+void CRcvBufferNew::updRcvAvgDataSize(const steady_clock::time_point& now)
+{
+    if (!m_mavg.isTimeToUpdate(now))
+        return;
+
+    int       bytes = 0;
+    int       timespan_ms = 0;
+    const int pkts = getRcvDataSize(bytes, timespan_ms);
+    m_mavg.update(now, pkts, bytes, timespan_ms);
+}
+
+} // namespace srt
+
+#endif // ENABLE_NEW_RCVBUFFER

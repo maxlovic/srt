@@ -1,15 +1,17 @@
+#if ENABLE_NEW_RCVBUFFER
+
 #include "gtest/gtest.h"
 #include <array>
 #include <numeric>
 
-#include "rcvbuffer.h"
+#include "buffer_rcv.h"
 #include "sync.h"
 
 using namespace std;
 using namespace srt::sync;
 
 /*!
- * This set of tests has the following CRcvBuffer2 common configuration:
+ * This set of tests has the following CRcvBufferNew common configuration:
  * - TSBPD ode = OFF
  *
  */
@@ -28,17 +30,17 @@ protected:
     }
 
 protected:
-    // Constructs CRcvBuffer2 and CUnitQueue
+    // Constructs CRcvBufferNew and CUnitQueue
     // SetUp() is run immediately before a test starts.
     void SetUp() override
     {
         // make_unique is unfortunatelly C++14
         m_unit_queue = unique_ptr<CUnitQueue>(new CUnitQueue);
         m_unit_queue->init(m_buff_size_pkts, 1500, AF_INET);
-        m_rcv_buffer = unique_ptr<CRcvBuffer2>(new CRcvBuffer2(m_init_seqno, m_buff_size_pkts, m_unit_queue.get()));
+        m_rcv_buffer = unique_ptr<CRcvBufferNew>(new CRcvBufferNew(m_init_seqno, m_buff_size_pkts, m_unit_queue.get()));
     }
 
-    // Destructs CRcvBuffer2 and CUnitQueue
+    // Destructs CRcvBufferNew and CUnitQueue
     void TearDown() override
     {
         // Code here will be called just after the test completes.
@@ -120,7 +122,7 @@ public:
 
 protected:
     unique_ptr<CUnitQueue>  m_unit_queue;
-    unique_ptr<CRcvBuffer2> m_rcv_buffer;
+    unique_ptr<CRcvBufferNew> m_rcv_buffer;
     const int               m_buff_size_pkts = 16;
     const int               m_init_seqno     = 1000;
     static const size_t     m_payload_sz     = 1456;
@@ -146,7 +148,7 @@ TEST_F(TestRcvBuffer2Read, OnePacket)
     // Adding one message  without acknowledging
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), 0);
 
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), -1) << "Adding a packet into the same position must return -1.";
 
@@ -155,7 +157,7 @@ TEST_F(TestRcvBuffer2Read, OnePacket)
     int read_len = m_rcv_buffer->readMessage(buff.data(), buff.size());
     EXPECT_EQ(read_len, msg_bytelen);
 
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
     EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), -1);
     EXPECT_EQ(read_len, msg_bytelen);
 }
@@ -185,12 +187,12 @@ TEST_F(TestRcvBuffer2Read, OnePacketTSBPD)
     std::array<char, 2 * msg_bytelen> buff;
 
     // There is one packet in the buffer, but not ready to read after delay/2
-    EXPECT_FALSE(m_rcv_buffer->canRead(m_tsbpd_base + (m_delay / 2)));
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady(m_tsbpd_base + (m_delay / 2)));
 
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, true, packet_ts), -1);
 
     // There is one packet in the buffer, but not ready to read after delay/2
-    EXPECT_TRUE(m_rcv_buffer->canRead(m_tsbpd_base + m_delay));
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady(m_tsbpd_base + m_delay));
 
     // Read out the first message
     const int read_len = m_rcv_buffer->readMessage(buff.data(), buff.size());
@@ -198,10 +200,10 @@ TEST_F(TestRcvBuffer2Read, OnePacketTSBPD)
     EXPECT_TRUE(verifyPayload(buff.data(), read_len, m_init_seqno));
 
     // Check the state after a packet was read
-    EXPECT_FALSE(m_rcv_buffer->canRead(m_tsbpd_base + m_delay));
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady(m_tsbpd_base + m_delay));
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), -2);
 
-    EXPECT_FALSE(m_rcv_buffer->canRead(m_tsbpd_base + m_delay));
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady(m_tsbpd_base + m_delay));
 }
 
 /// One packet is added to the buffer after 1-packet gap. Should be read only after ACK.
@@ -219,7 +221,7 @@ TEST_F(TestRcvBuffer2Read, OnePacketAfterGapDrop)
     // 1. Add one message (1 packet) without acknowledging
     // with a gap of one packet.
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + 1, false), 0);
-    EXPECT_FALSE(m_rcv_buffer->canRead()) << "No packet to read at this point";
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady()) << "No packet to read at this point";
 
     // 2. Try to read message. Expect to get an error due to the missing first packet.
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
@@ -231,11 +233,11 @@ TEST_F(TestRcvBuffer2Read, OnePacketAfterGapDrop)
 
     m_rcv_buffer->dropUpTo(next_packet.seqno);
 
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
     EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
     EXPECT_TRUE(verifyPayload(buff.data(), msg_bytelen, m_init_seqno + 1));
 
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 }
 
 // The same as above, but a missing packet is added to the buffer.
@@ -245,7 +247,7 @@ TEST_F(TestRcvBuffer2Read, OnePacketAfterGapAdd)
     // 1. Add one message (1 packet) without acknowledging
     // with a gap of one packet.
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + 1, false), 0);
-    EXPECT_FALSE(m_rcv_buffer->canRead()) << "No packet to read at this point";
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady()) << "No packet to read at this point";
 
     // 2. Try to read message. Expect to get an error due to the missing first packet.
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
@@ -260,14 +262,14 @@ TEST_F(TestRcvBuffer2Read, OnePacketAfterGapAdd)
 
     for (int pktno = 0; pktno < 2; ++pktno)
     {
-        EXPECT_TRUE(m_rcv_buffer->canRead());
+        EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
         EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
         EXPECT_TRUE(verifyPayload(buff.data(), msg_bytelen, m_init_seqno + pktno));
     }
 
     // 5. Further read is not possible
     //EXPECT_FALSE(m_rcv_buffer->canAck());
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 }
 
 // One message (4 packets) are added to the buffer.
@@ -277,14 +279,14 @@ TEST_F(TestRcvBuffer2Read, LongMessage)
     const size_t msg_pkts = 4;
     // 1. Add one message (4 packets) without acknowledging
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), 0);
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
     std::array<char, 2 * msg_bytelen> buff;
 
     // TODO: Check reading if insufficient space
     //EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), m_payload_sz), -1);
-    //EXPECT_TRUE(m_rcv_buffer->canRead());
+    //EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
     for (size_t i = 0; i < msg_pkts; ++i)
@@ -292,7 +294,7 @@ TEST_F(TestRcvBuffer2Read, LongMessage)
         EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, m_init_seqno + i));
     }
 
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 }
 
 // One message (4 packets) are added to the buffer. Can be read out of order.
@@ -304,7 +306,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAdd)
     // 1. Add one message (4 packets) without acknowledging
     const int msg_seqno = m_init_seqno + 1; // seqno of the first packet in the message
     EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), 0);
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     // 2. Read full message after gap.
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
@@ -316,19 +318,19 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAdd)
         EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, msg_seqno + i));
     }
 
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 
     // Can't add to the same message
     EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), -1);
 
     // Add missing packet
     EXPECT_EQ(addMessage(1, m_init_seqno, true), 0);
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     const size_t  one_msg_bytelen = m_payload_sz; // Assertion of a static variable m_payload_sz results in linking error
     EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), one_msg_bytelen);
     EXPECT_TRUE(verifyPayload(buff.data(), one_msg_bytelen, m_init_seqno));
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 
     // All memory usits are expected to be freed.
     EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
@@ -343,7 +345,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderDrop)
     // 1. Add one message (4 packets) without acknowledging
     const int msg_seqno = m_init_seqno + 1; // seqno of the first packet in the message
     EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), 0);
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     // 2. Read full message after gap.
     const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
@@ -355,7 +357,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderDrop)
         EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, msg_seqno + i));
     }
 
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 
     // Can't add to the same message
     EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), -1);
@@ -365,7 +367,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderDrop)
 
     // Drop missing packet
     m_rcv_buffer->dropUpTo(msg_seqno);
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
     // All memory units are expected to be freed.
     EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
 }
@@ -379,7 +381,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAfterInOrder)
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + 2 * msg_pkts, true), 0);
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno, false), 0);
     EXPECT_EQ(addMessage(msg_pkts, m_init_seqno + msg_pkts, true), 0);
-    EXPECT_TRUE(m_rcv_buffer->canRead());
+    EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
 
     // 2. Read messages in order
 
@@ -387,7 +389,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAfterInOrder)
     std::array<char, 2 * msg_bytelen> buff;
     for (int msg_i = 0; msg_i < 3; ++msg_i)
     {
-        EXPECT_TRUE(m_rcv_buffer->canRead());
+        EXPECT_TRUE(m_rcv_buffer->isRcvDataReady());
         EXPECT_EQ(m_rcv_buffer->readMessage(buff.data(), buff.size()), msg_bytelen);
         for (size_t i = 0; i < msg_pkts; ++i)
         {
@@ -395,5 +397,7 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAfterInOrder)
         }    
     }
 
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 }
+
+#endif // ENABLE_NEW_RCVBUFFER

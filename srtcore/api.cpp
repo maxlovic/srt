@@ -158,8 +158,15 @@ void CUDTSocket::setBrokenClosed()
 
 bool CUDTSocket::readReady()
 {
+#if ENABLE_NEW_RCVBUFFER
     if (m_pUDT->m_bConnected && m_pUDT->m_pRcvBuffer->isRcvDataReady())
         return true;
+#else
+    if (m_pUDT->m_bConnected && m_pUDT->m_pRcvBuffer->isRcvDataReady())
+        return true;
+#endif
+
+
     if (m_pUDT->m_bListening)
     {
         return m_pQueuedSockets->size() > 0;

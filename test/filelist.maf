@@ -1,12 +1,4 @@
-HEADERS
-rcvbuffer.h
-buffer2.h
-rcvunit.h
-
 SOURCES
-buffer2.cpp
-rcvbuffer.cpp
-rcvunit.cpp
 test_buffer2.cpp
 test_rcvbuffer_tsbpd.cpp
 test_rcvbuffer2_read.cpp

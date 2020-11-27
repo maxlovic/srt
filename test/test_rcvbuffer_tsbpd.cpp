@@ -3,6 +3,8 @@
 #include <memory>
 #include <numeric>
 
+#if ENABLE_NEW_RCVBUFFER
+
 #include "rcvbuffer.h"
 #include "sync.h"
 
@@ -32,8 +34,8 @@ protected:
         //m_unit_queue = make_unique<CUnitQueue>();
         m_unit_queue = unique_ptr<CUnitQueue>(new CUnitQueue);
         m_unit_queue->init(m_buff_size_pkts, 1500, AF_INET);
-        //m_rcv_buffer = make_unique<CRcvBuffer2>(m_init_seqno, m_buff_size_pkts);
-        m_rcv_buffer = unique_ptr<CRcvBuffer2>(new CRcvBuffer2(m_init_seqno, m_buff_size_pkts, m_unit_queue.get()));
+        //m_rcv_buffer = make_unique<CRcvBufferNew>(m_init_seqno, m_buff_size_pkts);
+        m_rcv_buffer = unique_ptr<CRcvBufferNew>(new CRcvBufferNew(m_init_seqno, m_buff_size_pkts, m_unit_queue.get()));
         //m_rcv_buffer->setTsbPdMode(m_tsbpd_base, false, m_delay, steady_clock::duration(0));
     }
 
@@ -48,7 +50,7 @@ protected:
 protected:
 
     unique_ptr<CUnitQueue>  m_unit_queue;
-    unique_ptr<CRcvBuffer2> m_rcv_buffer;
+    unique_ptr<CRcvBufferNew> m_rcv_buffer;
     const int m_buff_size_pkts = 16;
     const int m_init_seqno = 1000;
 
@@ -60,7 +62,7 @@ protected:
 
 
 /// TSBPD = ON, not acknowledged ready to play packet is preceeded by a missing packet.
-/// So the CRcvBuffer2::updateState() function should drop the missing packet.
+/// So the CRcvBufferNew::updateState() function should drop the missing packet.
 /// The packet has a timestamp of 200 us.
 /// The TSBPD delay is set to 200 ms. This means, that the packet can be played
 /// not earlier than after 200200 microseconds from the peer start time.
@@ -105,7 +107,7 @@ TEST_F(TestRcvBufferTSBPD, UnackPreceedsMissing)
     EXPECT_TRUE(pkt_info.seq_gap);
 
     // The packet is not yet acknowledges, so we can't read it
-    EXPECT_FALSE(m_rcv_buffer->canRead(readready_timestamp));
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady(readready_timestamp));
 
     // The packet is preceeded by a gap, so we can't acknowledge it
     //EXPECT_FALSE(m_rcv_buffer->canAck());
@@ -124,7 +126,7 @@ TEST_F(TestRcvBufferTSBPD, UnackPreceedsMissing)
 
 
 
-/// In this test case one packet is inserted into the CRcvBuffer2.
+/// In this test case one packet is inserted into the CRcvBufferNew.
 /// TSBPD mode is ON. The packet has a timestamp of 200 us.
 /// The TSBPD delay is set to 200 ms. This means, that the packet can be played
 /// not earlier than after 200200 microseconds from the peer start time.
@@ -152,20 +154,20 @@ TEST_F(TestRcvBufferTSBPD, ReadMessage)
     EXPECT_EQ(pkt_info.tsbpd_time, m_peer_start_time_us + pkt.m_iTimeStamp + m_delay_us);
 
     // The packet is not yet acknowledges, so we can't read it
-    EXPECT_FALSE(m_rcv_buffer->canRead(pkt_info.tsbpd_time - 1));
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady(pkt_info.tsbpd_time - 1));
 
     //m_rcv_buffer->ack(CSeqNo::incseq(seqno));
     // Expect it is not time to read the next packet
-    EXPECT_FALSE(m_rcv_buffer->canRead(pkt_info.tsbpd_time - 1));
-    EXPECT_TRUE (m_rcv_buffer->canRead(pkt_info.tsbpd_time));
-    EXPECT_TRUE (m_rcv_buffer->canRead(pkt_info.tsbpd_time + 1));
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady(pkt_info.tsbpd_time - 1));
+    EXPECT_TRUE (m_rcv_buffer->isRcvDataReady(pkt_info.tsbpd_time));
+    EXPECT_TRUE (m_rcv_buffer->isRcvDataReady(pkt_info.tsbpd_time + 1));
 
     // Read the message from the buffer
     std::array<char, payload_size> read_buffer;
     const int read_len = m_rcv_buffer->readMessage(read_buffer.data(), read_buffer.size());
     EXPECT_EQ(read_len, read_buffer.size());
     EXPECT_TRUE(read_buffer == src_buffer);
-    EXPECT_FALSE(m_rcv_buffer->canRead());
+    EXPECT_FALSE(m_rcv_buffer->isRcvDataReady());
 }
 
 
@@ -190,3 +192,5 @@ TEST_F(TestRcvBufferTSBPD, ReadMessage)
 /// has to skip m_iStartPos and m_iLastAckPos up to that packet.
 
 #endif
+
+#endif // ENABLE_NEW_RCVBUFFER

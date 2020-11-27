@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include <array>
 
+#ifndef ENABLE_NEW_RCVBUFFER
 
 TEST(CRcvBuffer, Create)
 {
@@ -391,3 +392,5 @@ TEST_F(TestRcvBufferRead, OutOfOrderMsgNoACK)
     const int res = m_rcv_buffer->readMsg(buff.data(), buff.size());
     EXPECT_EQ(res, msg_bytelen);
 }
+
+#endif // !ENABLE_NEW_RCVBUFFER

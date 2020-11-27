@@ -2,30 +2,32 @@
 #include <array>
 #include <numeric>
 
-#include "rcvbuffer.h"
+#if ENABLE_NEW_RCVBUFFER
+
+#include "buffer_rcv.h"
 
 
 
 
-TEST(CRcvBuffer2, Create)
+TEST(CRcvBufferNew, Create)
 {
     const int buffer_size = 65536;
     CUnitQueue unit_queue;
     unit_queue.init(buffer_size, 1500, AF_INET);
-    CRcvBuffer2 rcv_buffer(0, buffer_size, &unit_queue);
+    CRcvBufferNew rcv_buffer(0, buffer_size, &unit_queue);
 
     EXPECT_EQ(rcv_buffer.getAvailBufSize(), buffer_size - 1);   // logic
 }
 
 
 
-TEST(CRcvBuffer2, FullBuffer)
+TEST(CRcvBufferNew, FullBuffer)
 {
     const int buffer_size_pkts = 16;
     CUnitQueue unit_queue;
     unit_queue.init(buffer_size_pkts, 1500, AF_INET);
     const int initial_seqno = 1234;
-    CRcvBuffer2 rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
+    CRcvBufferNew rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
 
     const size_t payload_size = 1456;
     // Add a number of units (packets) to the buffer
@@ -73,16 +75,16 @@ TEST(CRcvBuffer2, FullBuffer)
     //}
 }
 
-/// In this test case two packets are inserted in the CRcvBuffer2,
+/// In this test case two packets are inserted in the CRcvBufferNew,
 /// but with a gap in sequence numbers. The test checks that this situation
 /// is handled properly.
-TEST(CRcvBuffer2, HandleSeqGap)
+TEST(CRcvBufferNew, HandleSeqGap)
 {
     const int buffer_size_pkts = 16;
     CUnitQueue unit_queue;
     unit_queue.init(buffer_size_pkts, 1500, AF_INET);
     const int initial_seqno = 1234;
-    CRcvBuffer2 rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
+    CRcvBufferNew rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
 
     const size_t payload_size = 1456;
     // Add a number of units (packets) to the buffer
@@ -105,13 +107,13 @@ TEST(CRcvBuffer2, HandleSeqGap)
 /// but all composing a one message. In details, each packet [  ]
 /// [PB_FIRST] [PB_SUBSEQUENT] [PB_SUBSEQUENsT] [PB_LAST]
 ///
-TEST(CRcvBuffer2, OneMessageInSeveralPackets)
+TEST(CRcvBufferNew, OneMessageInSeveralPackets)
 {
     const int buffer_size_pkts = 16;
     CUnitQueue unit_queue;
     unit_queue.init(buffer_size_pkts, 1500, AF_INET);
     const int initial_seqno = 1000;
-    CRcvBuffer2 rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
+    CRcvBufferNew rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
 
     const size_t payload_size = 1456;
     const int message_len_in_pkts = 4;
@@ -138,11 +140,11 @@ TEST(CRcvBuffer2, OneMessageInSeveralPackets)
         memcpy(packet.m_pcData, src_buffer.data() + i * payload_size, payload_size);
 
         EXPECT_EQ(rcv_buffer.insert(unit), 0);
-        EXPECT_FALSE(rcv_buffer.canRead());
+        EXPECT_FALSE(rcv_buffer.isRcvDataReady());
 
         //rcv_buffer.ack(packet.m_iSeqNo + 1);
 
-        EXPECT_EQ(rcv_buffer.canRead(), is_last_packet);
+        EXPECT_EQ(rcv_buffer.isRcvDataReady(), is_last_packet);
         //EXPECT_EQ(rcv_buffer.countReadable(), is_last_packet ? message_len_in_pkts : 0);
     }
 
@@ -151,20 +153,20 @@ TEST(CRcvBuffer2, OneMessageInSeveralPackets)
     const int read_len = rcv_buffer.readMessage(read_buffer.data(), buf_length);
     EXPECT_EQ(read_len, payload_size * message_len_in_pkts);
     EXPECT_TRUE(read_buffer == src_buffer);
-    EXPECT_FALSE(rcv_buffer.canRead());
+    EXPECT_FALSE(rcv_buffer.isRcvDataReady());
 }
 
 
 /// In this test case several units are inserted in the CRcvBuffer.
 /// The first message is not full, but the secon message is ready to be extracted.
 ///
-TEST(CRcvBuffer2, MessageOutOfOrder)
+TEST(CRcvBufferNew, MessageOutOfOrder)
 {
     const int buffer_size_pkts = 16;
     CUnitQueue unit_queue;
     unit_queue.init(buffer_size_pkts, 1500, AF_INET);
     const int initial_seqno = 1000;
-    CRcvBuffer2 rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
+    CRcvBufferNew rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
 
     const size_t payload_size = 1456;
     const int message_len_in_pkts = 4;
@@ -193,10 +195,10 @@ TEST(CRcvBuffer2, MessageOutOfOrder)
         memcpy(packet.m_pcData, src_buffer.data() + i * payload_size, payload_size);
 
         EXPECT_EQ(rcv_buffer.insert(unit), 0);
-        EXPECT_FALSE(rcv_buffer.canRead());
+        EXPECT_FALSE(rcv_buffer.isRcvDataReady());
 
         // Due to out of order flag we should be able to read the unacknowledged message
-        EXPECT_EQ(rcv_buffer.canRead(), is_last_packet);
+        EXPECT_EQ(rcv_buffer.isRcvDataReady(), is_last_packet);
         //EXPECT_EQ(rcv_buffer.countReadable(), is_last_packet ? message_len_in_pkts : 0);
     }
 
@@ -205,17 +207,17 @@ TEST(CRcvBuffer2, MessageOutOfOrder)
     const int read_len = rcv_buffer.readMessage(read_buffer.data(), buf_length);
     EXPECT_EQ(read_len, payload_size * message_len_in_pkts);
     EXPECT_TRUE(read_buffer == src_buffer);
-    EXPECT_FALSE(rcv_buffer.canRead());
+    EXPECT_FALSE(rcv_buffer.isRcvDataReady());
 }
 
 
-TEST(CRcvBuffer2, GetFirstValidPacket)
+TEST(CRcvBufferNew, GetFirstValidPacket)
 {
     const int buffer_size_pkts = 16;
     CUnitQueue unit_queue;
     unit_queue.init(buffer_size_pkts, 1500, AF_INET);
     const int initial_seqno = 1234;
-    CRcvBuffer2 rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
+    CRcvBufferNew rcv_buffer(initial_seqno, buffer_size_pkts, &unit_queue);
 
     const size_t payload_size = 1456;
     // Add a number of units (packets) to the buffer
@@ -232,3 +234,4 @@ TEST(CRcvBuffer2, GetFirstValidPacket)
     EXPECT_EQ(rcv_buffer.getAvailBufSize(), buffer_size_pkts - 1);   // logic
 }
 
+#endif // ENABLE_NEW_RCVBUFFER
