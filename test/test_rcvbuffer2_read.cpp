@@ -295,9 +295,10 @@ TEST_F(TestRcvBuffer2Read, LongMessage)
     EXPECT_FALSE(m_rcv_buffer->canRead());
 }
 
-/// One message (4 packets) are added to the buffer. Can be read out of order.
-/// Reading should be possible even before full ACK of the whole message.
-TEST_F(TestRcvBuffer2Read, MsgOutOfOrder)
+// One message (4 packets) are added to the buffer. Can be read out of order.
+// Reading should be possible even before the missing packet arrives.
+// After a missing packet arrived and read, memory units of the previously read message are freed.
+TEST_F(TestRcvBuffer2Read, MsgOutOfOrderAdd)
 {
     const size_t msg_pkts = 4;
     // 1. Add one message (4 packets) without acknowledging
@@ -330,6 +331,42 @@ TEST_F(TestRcvBuffer2Read, MsgOutOfOrder)
     EXPECT_FALSE(m_rcv_buffer->canRead());
 
     // All memory usits are expected to be freed.
+    EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
+}
+
+// One message (4 packets) are added to the buffer. Can be read out of order.
+// Reading should be possible even before the missing packet is dropped.
+// After a missing packet is dropped, memory units of the previously read message are freed.
+TEST_F(TestRcvBuffer2Read, MsgOutOfOrderDrop)
+{
+    const size_t msg_pkts = 4;
+    // 1. Add one message (4 packets) without acknowledging
+    const int msg_seqno = m_init_seqno + 1; // seqno of the first packet in the message
+    EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), 0);
+    EXPECT_TRUE(m_rcv_buffer->canRead());
+
+    // 2. Read full message after gap.
+    const size_t                      msg_bytelen = msg_pkts * m_payload_sz;
+    std::array<char, 2 * msg_bytelen> buff;
+    int                               res = m_rcv_buffer->readMessage(buff.data(), buff.size());
+    EXPECT_EQ(res, msg_bytelen);
+    for (size_t i = 0; i < msg_pkts; ++i)
+    {
+        EXPECT_TRUE(verifyPayload(buff.data() + i * m_payload_sz, m_payload_sz, msg_seqno + i));
+    }
+
+    EXPECT_FALSE(m_rcv_buffer->canRead());
+
+    // Can't add to the same message
+    EXPECT_EQ(addMessage(msg_pkts, msg_seqno, true), -1);
+
+    const auto pkt_info = m_rcv_buffer->getFirstValidPacketInfo();
+    EXPECT_EQ(pkt_info.seqno, msg_seqno);
+
+    // Drop missing packet
+    m_rcv_buffer->dropUpTo(msg_seqno);
+    EXPECT_FALSE(m_rcv_buffer->canRead());
+    // All memory units are expected to be freed.
     EXPECT_EQ(m_unit_queue->size(), m_unit_queue->capacity());
 }
 

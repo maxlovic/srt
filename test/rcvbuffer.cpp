@@ -135,6 +135,7 @@ void CRcvBuffer2::dropUpTo(int32_t seqno)
 
     // Update positions
     m_iStartSeqNo = seqno;
+    releasePassackUnits();
     // Set nonread position to the starting position before updating,
     // because start position was increased, and preceeding packets are invalid. 
     m_iFirstNonreadPos = m_iStartPos;
