@@ -163,6 +163,7 @@ void CUDT::construct()
     m_iTsbPdDelay_ms     = 0;
     m_iPeerTsbPdDelay_ms = 0;
 
+    m_iISN               = -1;
     m_bPeerTsbPd         = false;
     m_iPeerTsbPdDelay_ms = 0;
     m_bTsbPd             = false;
@@ -6010,7 +6011,12 @@ bool CUDT::prepareConnectionObjects(const CHandShake &hs, HandshakeSide hsd, CUD
     try
     {
         m_pSndBuffer = new CSndBuffer(32, m_iMaxSRTPayloadSize);
+#if ENABLE_NEW_RCVBUFFER
+        SRT_ASSERT(m_iISN != -1);
+        m_pRcvBuffer = new srt::CRcvBufferNew(m_iISN, m_iRcvBufSize, &(m_pRcvQueue->m_UnitQueue));
+#else
         m_pRcvBuffer = new CRcvBuffer(&(m_pRcvQueue->m_UnitQueue), m_iRcvBufSize);
+#endif
         // after introducing lite ACK, the sndlosslist may not be cleared in time, so it requires twice space.
         m_pSndLossList = new CSndLossList(m_iFlowWindowSize * 2);
         m_pRcvLossList = new CRcvLossList(m_iFlightFlagSize);
@@ -6283,7 +6289,7 @@ SRT_REJECT_REASON CUDT::setupCC()
         // At this point we state everything is checked and the appropriate
         // corrector type is already selected, so now create it.
         HLOGC(pflog.Debug, log << "filter: Configuring: " << m_OPT_PktFilterConfigString);
-        if (!m_PacketFilter.configure(this, m_pRcvBuffer->getUnitQueue(), m_OPT_PktFilterConfigString))
+        if (!m_PacketFilter.configure(this, &(m_pRcvQueue->m_UnitQueue), m_OPT_PktFilterConfigString))
         {
             return SRT_REJ_FILTER;
         }
@@ -6686,7 +6692,12 @@ int CUDT::receiveBuffer(char *data, int len)
         throw CUDTException(MJ_CONNECTION, MN_CONNLOST, 0);
     }
 
+    // TODO: Implement readBuffer
+#if ENABLE_NEW_RCVBUFFER
+    const int res = -1;
+#else
     const int res = m_pRcvBuffer->readBuffer(data, len);
+#endif
 
     /* Kick TsbPd thread to schedule next wakeup (if running) */
     if (m_bTsbPd)
@@ -7183,7 +7194,11 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
     {
         HLOGC(arlog.Debug, log << CONID() << "receiveMessage: CONNECTION BROKEN - reading from recv buffer just for formality");
         enterCS(m_RcvBufferLock);
+#if ENABLE_NEW_RCVBUFFER
+        const int res = m_pRcvBuffer->readMessage(data, len);
+#else
         int res       = m_pRcvBuffer->readMsg(data, len);
+#endif
         leaveCS(m_RcvBufferLock);
         w_mctrl.srctime = 0;
 
@@ -7223,7 +7238,11 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
     {
         HLOGC(arlog.Debug, log << CONID() << "receiveMessage: BEGIN ASYNC MODE. Going to extract payload size=" << len);
         enterCS(m_RcvBufferLock);
+#if ENABLE_NEW_RCVBUFFER
+        const int res = m_pRcvBuffer->readMessage(data, len);
+#else
         const int res = m_pRcvBuffer->readMsg(data, len, (w_mctrl), seqdistance);
+#endif
         leaveCS(m_RcvBufferLock);
         HLOGC(arlog.Debug, log << CONID() << "AFTER readMsg: (NON-BLOCKING) result=" << res);
 

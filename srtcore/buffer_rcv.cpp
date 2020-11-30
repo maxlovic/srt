@@ -56,7 +56,7 @@ CRcvBufferNew::CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     , m_iBytesCount(0)
     , m_iAckedPktsCount(0)
     , m_iAckedBytesCount(0)
-    , m_iAvgPayloadSz(7 * 188)
+    , m_uAvgPayloadSz(7 * 188)
 {
     SRT_ASSERT(size < INT_MAX); // All position pointers are integers
     m_pUnit = new CUnit * [m_szSize];
@@ -303,7 +303,7 @@ void CRcvBufferNew::countBytes(int pkts, int bytes, bool acked)
     {
         m_iBytesCount += bytes; /* added or removed bytes from rcv buffer */
         if (bytes > 0)          /* Assuming one pkt when adding bytes */
-            m_iAvgPayloadSz = avg_iir<100>(m_iAvgPayloadSz, bytes);
+            m_uAvgPayloadSz = avg_iir<100>(m_uAvgPayloadSz, (unsigned) bytes);
     }
     else // acking/removing pkts to/from buffer
     {
@@ -606,6 +606,43 @@ void CRcvBufferNew::setTsbPdMode(const steady_clock::time_point& timebase, bool 
     // of network latency and drift.
     m_tdTsbPdDelay = microseconds_from(delay);
     m_DriftTracer.forceDrift(count_microseconds(drift));
+}
+
+void CRcvBufferNew::applyGroupTime(const steady_clock::time_point& timebase,
+    bool                            wrp,
+    uint32_t                        delay,
+    const steady_clock::duration& udrift)
+{
+    // Same as setRcvTsbPdMode, but predicted to be used for group members.
+    // This synchronizes the time from the INTERNAL TIMEBASE of an existing
+    // socket's internal timebase. This is required because the initial time
+    // base stays always the same, whereas the internal timebase undergoes
+    // adjustment as the 32-bit timestamps in the sockets wrap. The socket
+    // newly added to the group must get EXACTLY the same internal timebase
+    // or otherwise the TsbPd time calculation will ship different results
+    // on different sockets.
+
+    m_bTsbPdMode = true;
+
+    m_tsTsbPdTimeBase = timebase;
+    m_bTsbPdWrapCheck = wrp;
+    m_tdTsbPdDelay = microseconds_from(delay);
+    m_DriftTracer.forceDrift(count_microseconds(udrift));
+}
+
+void CRcvBufferNew::applyGroupDrift(const steady_clock::time_point& timebase,
+    bool                            wrp,
+    const steady_clock::duration& udrift)
+{
+    // This is only when a drift was updated on one of the group members.
+    HLOGC(brlog.Debug,
+        log << "rcv-buffer: group synch uDRIFT: " << m_DriftTracer.drift() << " -> " << FormatDuration(udrift)
+        << " TB: " << FormatTime(m_tsTsbPdTimeBase) << " -> " << FormatTime(timebase));
+
+    m_tsTsbPdTimeBase = timebase;
+    m_bTsbPdWrapCheck = wrp;
+
+    m_DriftTracer.forceDrift(count_microseconds(udrift));
 }
 
 CRcvBufferNew::time_point CRcvBufferNew::getTsbPdTimeBase(uint32_t timestamp_us) const
