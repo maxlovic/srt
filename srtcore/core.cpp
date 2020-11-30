@@ -5596,73 +5596,62 @@ void* CUDT::tsbpd(void* param)
     self->m_bTsbPdAckWakeup = true;
     while (!self->m_bClosing)
     {
-        int32_t                  current_pkt_seq = 0;
-        steady_clock::time_point tsbpdtime;
+        steady_clock::time_point tsbpd_time;
         bool                     rxready = false;
 #if ENABLE_EXPERIMENTAL_BONDING
         bool shall_update_group = false;
 #endif
 
         enterCS(self->m_RcvBufferLock);
+        const steady_clock::time_point tnow = steady_clock::now();
 
-        self->m_pRcvBuffer->updRcvAvgDataSize(steady_clock::now());
+        self->m_pRcvBuffer->updRcvAvgDataSize(tnow);
+        const srt::CRcvBufferNew::PacketInfo info = self->m_pRcvBuffer->getFirstValidPacketInfo();
 
-        if (self->m_bTLPktDrop)
+        const bool is_time_to_deliver = (tnow >= info.tsbpd_time);
+
+        if (!self->m_bTLPktDrop)
         {
-            const srt::CRcvBufferNew::PacketInfo info = self->m_pRcvBuffer->getFirstValidPacketInfo();
-            const steady_clock::time_point tnow = steady_clock::now();
-            rxready = info.tsbpd_time >= tnow;
-            tsbpdtime = info.tsbpd_time;
-
-            if (rxready)
+            rxready = !info.seq_gap && is_time_to_deliver;
+        }
+        else if (is_time_to_deliver)
+        {
+            rxready = true;
+            const int seq_gap_len = CSeqNo::seqoff(self->m_iRcvLastSkipAck, info.seqno);
+            if (seq_gap_len > 0)
             {
-                /* Packet ready to play according to time stamp but... */
-                int seqlen = CSeqNo::seqoff(self->m_iRcvLastSkipAck, info.seqno);
+                SRT_ASSERT(info.seq_gap);
 
-                if (info.seqno != SRT_SEQNO_NONE && seqlen > 0)
-                {
-                    /*
-                     * skiptoseqno != SRT_SEQNO_NONE,
-                     * packet ready to play but preceeded by missing packets (hole).
-                     */
+                // Drop too late packets
+                self->updateForgotten(seq_gap_len, self->m_iRcvLastSkipAck, info.seqno);
+                self->m_pRcvBuffer->dropUpTo(info.seqno);
 
-                    self->updateForgotten(seqlen, self->m_iRcvLastSkipAck, info.seqno);
-                    self->m_pRcvBuffer->dropUpTo(info.seqno);
-
-                    self->m_iRcvLastSkipAck = info.seqno;
+                self->m_iRcvLastSkipAck = info.seqno;
 #if ENABLE_EXPERIMENTAL_BONDING
-                    shall_update_group = true;
+                shall_update_group = true;
 #endif
 
 #if ENABLE_LOGGING
-                    int64_t timediff_us = 0;
-                    if (!is_zero(tsbpdtime))
-                        timediff_us = count_microseconds(tnow - tsbpdtime);
+                const int64_t timediff_us = count_microseconds(tnow - info.tsbpd_time);
 #if ENABLE_HEAVY_LOGGING
-                    /*HLOGC(tslog.Debug,
-                        log << self->CONID() << "tsbpd: DROPSEQ: up to seq=" << CSeqNo::decseq(skiptoseqno) << " ("
-                        << seqlen << " packets) playable at " << FormatTime(tsbpdtime) << " delayed "
-                        << (timediff_us / 1000) << "." << (timediff_us % 1000) << " ms");*/
+                /*HLOGC(tslog.Debug,
+                    log << self->CONID() << "tsbpd: DROPSEQ: up to seq=" << CSeqNo::decseq(skiptoseqno) << " ("
+                    << seqlen << " packets) playable at " << FormatTime(tsbpdtime) << " delayed "
+                    << (timediff_us / 1000) << "." << (timediff_us % 1000) << " ms");*/
 #endif
-                    LOGC(brlog.Warn, log << "RCV-DROPPED packet delay=" << (timediff_us / 1000) << "ms");
+                LOGC(brlog.Warn, log << "RCV-DROPPED packet delay=" << (timediff_us / 1000) << "ms");
 #endif
 
-                    tsbpdtime = steady_clock::time_point(); //Next sent ack will unblock
-                    rxready = false;
-                } /* else packet ready to play */
-            } /* else packets not ready to play */
-        }
-        else
-        {
-            rxready = self->m_pRcvBuffer->isRcvDataReady((tsbpdtime), (current_pkt_seq), -1 /*get first ready*/);
+                tsbpd_time = steady_clock::time_point(); // Ready to read, nothing to wait for.
+            }
         }
         leaveCS(self->m_RcvBufferLock);
 
         if (rxready)
         {
             HLOGC(tslog.Debug,
-                log << self->CONID() << "tsbpd: PLAYING PACKET seq=" << current_pkt_seq << " (belated "
-                << (count_milliseconds(steady_clock::now() - tsbpdtime)) << "ms)");
+                log << self->CONID() << "tsbpd: PLAYING PACKET seq=" << info.seqno << " (belated "
+                << (count_milliseconds(steady_clock::now() - info.tsbpd_time)) << "ms)");
             /*
              * There are packets ready to be delivered
              * signal a waiting "recv" call if there is any data available
@@ -5704,8 +5693,8 @@ void* CUDT::tsbpd(void* param)
                 // When the group is read-ready, it should update its pollers as it sees fit.
 
                 // NOTE: this call will set lock to m_IncludedGroup->m_GroupLock
-                HLOGC(tslog.Debug, log << self->CONID() << "tsbpd: GROUP: checking if %" << current_pkt_seq << " makes group readable");
-                gkeeper.group->updateReadState(self->m_SocketID, current_pkt_seq);
+                HLOGC(tslog.Debug, log << self->CONID() << "tsbpd: GROUP: checking if %" << info.seqno << " makes group readable");
+                gkeeper.group->updateReadState(self->m_SocketID, info.seqno);
 
                 if (shall_update_group)
                 {
@@ -5718,22 +5707,22 @@ void* CUDT::tsbpd(void* param)
             }
 #endif
             CGlobEvent::triggerEvent();
-            tsbpdtime = steady_clock::time_point();
+            tsbpd_time = steady_clock::time_point(); // Ready to read, nothing to wait for.
         }
 
-        if (!is_zero(tsbpdtime))
+        if (!is_zero(tsbpd_time))
         {
-            const steady_clock::duration timediff = tsbpdtime - steady_clock::now();
+            const steady_clock::duration timediff = tsbpd_time - tnow;
             /*
              * Buffer at head of queue is not ready to play.
              * Schedule wakeup when it will be.
              */
             self->m_bTsbPdAckWakeup = false;
             HLOGC(tslog.Debug,
-                log << self->CONID() << "tsbpd: FUTURE PACKET seq=" << current_pkt_seq
-                << " T=" << FormatTime(tsbpdtime) << " - waiting " << count_milliseconds(timediff) << "ms");
+                log << self->CONID() << "tsbpd: FUTURE PACKET seq=" << info.seqno
+                << " T=" << FormatTime(tsbpd_time) << " - waiting " << count_milliseconds(timediff) << "ms");
             THREAD_PAUSED();
-            tsbpd_cc.wait_until(tsbpdtime);
+            tsbpd_cc.wait_until(tsbpd_time);
             THREAD_RESUMED();
         }
         else
@@ -5799,14 +5788,7 @@ void *CUDT::tsbpd(void *param)
         {
             int32_t skiptoseqno = SRT_SEQNO_NONE;
             bool    passack     = true; // Get next packet to wait for even if not acked
-#if ENABLE_NEW_RCVBUFFER
-            const CRcvBufferNew::PacketInfo info = self->m_pRcvBuffer->getFirstValidPacketInfo();
-            const steady_clock::time_point tnow = steady_clock::now();
-            rxready = info.tsbpd_time >= tnow;
-#else
             rxready = self->m_pRcvBuffer->getRcvFirstMsg((tsbpdtime), (passack), (skiptoseqno), (current_pkt_seq));
-#endif
-
 
             HLOGC(tslog.Debug,
                   log << boolalpha << "NEXT PKT CHECK: rdy=" << rxready << " passack=" << passack << " skipto=%"
