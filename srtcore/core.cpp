@@ -5610,8 +5610,14 @@ void *CUDT::tsbpd(void *param)
         {
             int32_t skiptoseqno = SRT_SEQNO_NONE;
             bool    passack     = true; // Get next packet to wait for even if not acked
-
+#if ENABLE_NEW_RCVBUFFER
+            const CRcvBuffer::PacketInfo info = m_pRcvBuffer->getFirstValidPacketInfo();
+            const steady_clock::time_point tnow = steady_clock::now();
+            rxready = info.tsbpd_time >= tnow;
+#else
             rxready = self->m_pRcvBuffer->getRcvFirstMsg((tsbpdtime), (passack), (skiptoseqno), (current_pkt_seq));
+#endif
+
 
             HLOGC(tslog.Debug,
                   log << boolalpha << "NEXT PKT CHECK: rdy=" << rxready << " passack=" << passack << " skipto=%"
