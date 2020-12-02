@@ -1,4 +1,4 @@
-#if ENABLE_NEW_RCVBUFFER
+#if 1 || ENABLE_NEW_RCVBUFFER
 
 #include "buffer_rcv.h"
 #include "logging.h"
@@ -40,7 +40,7 @@ namespace srt {
  *    m_iMaxPosInc:     none? (modified on add and ack
  */
 
-CRcvBufferNew::CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue)
+CRcvBufferNew::CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue, bool peerRexmit)
     : m_pUnit(NULL)
     , m_szSize(size)
     , m_pUnitQueue(unitqueue)
@@ -51,6 +51,7 @@ CRcvBufferNew::CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue)
     , m_iNotch(0)
     , m_numOutOfOrderPackets(0)
     , m_iFirstReadableOutOfOrder(-1)
+    , m_bPeerRexmitFlag(peerRexmit)
     , m_bTsbPdMode(false)
     , m_bTsbPdWrapCheck(false)
     , m_iBytesCount(0)
@@ -146,7 +147,7 @@ void CRcvBufferNew::dropUpTo(int32_t seqno)
     updateNonreadPos();
 }
 
-int CRcvBufferNew::readMessage(char* data, size_t len)
+int CRcvBufferNew::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
 {
     const bool canReadInOrder = hasReadableInorderPkts();
     if (!canReadInOrder && m_iFirstReadableOutOfOrder < 0)
@@ -187,7 +188,16 @@ int CRcvBufferNew::readMessage(char* data, size_t len)
         if (m_numOutOfOrderPackets && !packet.getMsgOrderFlag())
             --m_numOutOfOrderPackets;
 
-        const bool pbLast = packet.getMsgBoundary() & PB_LAST;
+        const bool pbLast  = packet.getMsgBoundary() & PB_LAST;
+        if (msgctrl && (packet.getMsgBoundary() & PB_FIRST))
+        {
+            msgctrl->pktseq = packet.getSeqNo();
+            msgctrl->msgno  = packet.getMsgSeq(m_bPeerRexmitFlag);
+        }
+        if (msgctrl && pbLast)
+        {
+            msgctrl->srctime = count_microseconds(getPktTsbPdTime(packet.getMsgTimeStamp()).time_since_epoch());
+        }
 
         if (updateStartPos)
         {
@@ -260,6 +270,11 @@ CRcvBufferNew::PacketInfo CRcvBufferNew::getFirstValidPacketInfo() const
     return PacketInfo();
 }
 
+std::pair<int, int> CRcvBufferNew::getAvailablePacketsRange() const
+{
+    return std::pair<int, int>(m_iStartPos, m_iFirstNonreadPos);
+}
+
 size_t CRcvBufferNew::countReadable() const
 {
     if (m_iFirstNonreadPos >= m_iStartPos)
@@ -281,7 +296,7 @@ bool CRcvBufferNew::isRcvDataReady(time_point time_now) const
     if (!haveAckedPackets)
         return false;
 
-    const auto info = getFirstValidPacketInfo();
+    const PacketInfo info = getFirstValidPacketInfo();
 
     return info.tsbpd_time <= time_now;
 }
@@ -445,7 +460,7 @@ void CRcvBufferNew::onInsertNotInOrderPacket(int insertPos)
     //    return;
     //}
 
-    const int msgNo = pkt.getMsgSeq();
+    const int msgNo = pkt.getMsgSeq(m_bPeerRexmitFlag);
     // First check last packet, because it is expected to be received last.
     const bool hasLast = (boundary & PB_LAST) || (-1 < scanNotInOrderMessageRight(insertPos, msgNo));
     if (!hasLast)
@@ -501,10 +516,10 @@ void CRcvBufferNew::updateFirstReadableOutOfOrder()
         if (boundary & PB_FIRST)
         {
             posFirst = pos;
-            msgNo = pkt.getMsgSeq();
+            msgNo = pkt.getMsgSeq(m_bPeerRexmitFlag);
         }
 
-        if (pkt.getMsgSeq() != msgNo)
+        if (pkt.getMsgSeq(m_bPeerRexmitFlag) != msgNo)
         {
             posFirst = posLast = msgNo = -1;
             continue;
@@ -541,7 +556,7 @@ int CRcvBufferNew::scanNotInOrderMessageRight(const int startPos, int msgNo) con
 
         const CPacket& pkt = m_pUnit[pos]->m_Packet;
 
-        if (pkt.getMsgSeq() != msgNo)
+        if (pkt.getMsgSeq(m_bPeerRexmitFlag) != msgNo)
         {
             LOGC(rbuflog.Error, log << "Missing PB_LAST packet for msgNo " << msgNo);
             return -1;
@@ -572,7 +587,7 @@ int CRcvBufferNew::scanNotInOrderMessageLeft(const int startPos, int msgNo) cons
 
         const CPacket& pkt = m_pUnit[pos]->m_Packet;
 
-        if (pkt.getMsgSeq() != msgNo)
+        if (pkt.getMsgSeq(m_bPeerRexmitFlag) != msgNo)
         {
             LOGC(rbuflog.Error, log << "Missing PB_FIRST packet for msgNo " << msgNo);
             return -1;
@@ -586,8 +601,72 @@ int CRcvBufferNew::scanNotInOrderMessageLeft(const int startPos, int msgNo) cons
     return -1;
 }
 
+bool CRcvBufferNew::addRcvTsbPdDriftSample(uint32_t                  timestamp_us,
+                                        Mutex&                    mutex_to_lock,
+                                        steady_clock::duration&   w_udrift,
+                                        steady_clock::time_point& w_newtimebase)
+{
+    if (!m_bTsbPdMode) // Not checked unless in TSBPD mode
+        return false;
+    /*
+     * TsbPD time drift correction
+     * TsbPD time slowly drift over long period depleting decoder buffer or raising latency
+     * Re-evaluate the time adjustment value using a receiver control packet (ACK-ACK).
+     * ACK-ACK timestamp is RTT/2 ago (in sender's time base)
+     * Data packet have origin time stamp which is older when retransmitted so not suitable for this.
+     *
+     * Every TSBPD_DRIFT_MAX_SAMPLES packets, the average drift is calculated
+     * if -TSBPD_DRIFT_MAX_VALUE < avgTsbPdDrift < TSBPD_DRIFT_MAX_VALUE uSec, pass drift value to RcvBuffer to adjust
+     * delevery time. if outside this range, adjust this->TsbPdTimeOffset and RcvBuffer->TsbPdTimeBase by
+     * +-TSBPD_DRIFT_MAX_VALUE uSec to maintain TsbPdDrift values in reasonable range (-5ms .. +5ms).
+     */
 
-void CRcvBufferNew::setTsbPdMode(const steady_clock::time_point& timebase, bool wrap, uint32_t delay, const steady_clock::duration& drift)
+    // Note important thing: this function is being called _EXCLUSIVELY_ in the handler
+    // of UMSG_ACKACK command reception. This means that the timestamp used here comes
+    // from the CONTROL domain, not DATA domain (timestamps from DATA domain may be
+    // either schedule time or a time supplied by the application).
+
+    const steady_clock::duration iDrift =
+        steady_clock::now() - (getTsbPdTimeBase(timestamp_us) + microseconds_from(timestamp_us));
+
+    enterCS(mutex_to_lock);
+
+    bool updated = m_DriftTracer.update(count_microseconds(iDrift));
+
+#ifdef SRT_DEBUG_TSBPD_DRIFT
+    printDriftHistogram(count_microseconds(iDrift));
+#endif /* SRT_DEBUG_TSBPD_DRIFT */
+
+    if (updated)
+    {
+#ifdef SRT_DEBUG_TSBPD_DRIFT
+        printDriftOffset(m_DriftTracer.overdrift(), m_DriftTracer.drift());
+#endif /* SRT_DEBUG_TSBPD_DRIFT */
+
+#if ENABLE_HEAVY_LOGGING
+        const steady_clock::time_point oldbase = m_tsTsbPdTimeBase;
+#endif
+        steady_clock::duration overdrift = microseconds_from(m_DriftTracer.overdrift());
+        m_tsTsbPdTimeBase += overdrift;
+
+        HLOGC(brlog.Debug,
+              log << "DRIFT=" << FormatDuration(iDrift) << " AVG=" << (m_DriftTracer.drift() / 1000.0)
+                  << "ms, TB: " << FormatTime(oldbase) << " EXCESS: " << FormatDuration(overdrift)
+                  << " UPDATED TO: " << FormatTime(m_tsTsbPdTimeBase));
+    }
+    else
+    {
+        HLOGC(brlog.Debug,
+              log << "DRIFT=" << FormatDuration(iDrift) << " TB REMAINS: " << FormatTime(m_tsTsbPdTimeBase));
+    }
+
+    leaveCS(mutex_to_lock);
+    w_udrift      = iDrift;
+    w_newtimebase = m_tsTsbPdTimeBase;
+    return updated;
+}
+
+void CRcvBufferNew::setTsbPdMode(const steady_clock::time_point& timebase, bool wrap, duration delay, const steady_clock::duration& drift)
 {
     m_bTsbPdMode = true;
     m_bTsbPdWrapCheck = wrap;
@@ -604,7 +683,7 @@ void CRcvBufferNew::setTsbPdMode(const steady_clock::time_point& timebase, bool 
     // from the data packets because in case of application-supplied timestamps
     // they come from completely different server and undergo different rules
     // of network latency and drift.
-    m_tdTsbPdDelay = microseconds_from(delay);
+    m_tdTsbPdDelay = delay;
     m_DriftTracer.forceDrift(count_microseconds(drift));
 }
 

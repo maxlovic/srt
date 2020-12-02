@@ -5,10 +5,11 @@
 
 #if ENABLE_NEW_RCVBUFFER
 
-#include "rcvbuffer.h"
+#include "buffer_rcv.h"
 #include "sync.h"
 
 using namespace std;
+using namespace srt;
 #if 0
 
 class TestRcvBufferTSBPD

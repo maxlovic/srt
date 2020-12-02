@@ -5713,7 +5713,7 @@ void* CUDT::tsbpd(void* param)
 
         if (!is_zero(tsbpd_time))
         {
-            const steady_clock::duration timediff = tsbpd_time - tnow;
+            IF_HEAVY_LOGGING(const steady_clock::duration timediff = tsbpd_time - tnow);
             /*
              * Buffer at head of queue is not ready to play.
              * Schedule wakeup when it will be.
@@ -6013,7 +6013,7 @@ bool CUDT::prepareConnectionObjects(const CHandShake &hs, HandshakeSide hsd, CUD
         m_pSndBuffer = new CSndBuffer(32, m_iMaxSRTPayloadSize);
 #if ENABLE_NEW_RCVBUFFER
         SRT_ASSERT(m_iISN != -1);
-        m_pRcvBuffer = new srt::CRcvBufferNew(m_iISN, m_iRcvBufSize, &(m_pRcvQueue->m_UnitQueue));
+        m_pRcvBuffer = new srt::CRcvBufferNew(m_iISN, m_iRcvBufSize, &(m_pRcvQueue->m_UnitQueue), m_bPeerRexmitFlag);
 #else
         m_pRcvBuffer = new CRcvBuffer(&(m_pRcvQueue->m_UnitQueue), m_iRcvBufSize);
 #endif
@@ -7232,8 +7232,6 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
             return res;
     }
 
-    const int seqdistance = -1;
-
     if (!m_bSynRecving)
     {
         HLOGC(arlog.Debug, log << CONID() << "receiveMessage: BEGIN ASYNC MODE. Going to extract payload size=" << len);
@@ -7241,7 +7239,7 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
 #if ENABLE_NEW_RCVBUFFER
         const int res = m_pRcvBuffer->readMessage(data, len);
 #else
-        const int res = m_pRcvBuffer->readMsg(data, len, (w_mctrl), seqdistance);
+        const int res = m_pRcvBuffer->readMsg(data, len, (w_mctrl));
 #endif
         leaveCS(m_RcvBufferLock);
         HLOGC(arlog.Debug, log << CONID() << "AFTER readMsg: (NON-BLOCKING) result=" << res);
@@ -7304,9 +7302,13 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
 
     do
     {
+#if ENABLE_NEW_RCVBUFFER
+        if (stillConnected() && !timeout && !m_pRcvBuffer->isRcvDataReady(steady_clock::now()))
+#else
         steady_clock::time_point tstime SRT_ATR_UNUSED;
         int32_t seqno;
-        if (stillConnected() && !timeout && !m_pRcvBuffer->isRcvDataReady((tstime), (seqno), seqdistance))
+        if (stillConnected() && !timeout && !m_pRcvBuffer->isRcvDataReady((tstime), (seqno)))
+#endif
         {
             /* Kick TsbPd thread to schedule next wakeup (if running) */
             if (m_bTsbPd)
@@ -7319,7 +7321,7 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
                 // of kicking TSBPD.
                 // bool spurious = (tstime != 0);
 
-                HLOGC(tslog.Debug, log << CONID() << "receiveMessage: KICK tsbpd" << (is_zero(tstime) ? " (SPURIOUS!)" : ""));
+                HLOGC(tslog.Debug, log << CONID() << "receiveMessage: KICK tsbpd");
                 tscond.signal_locked(recvguard);
             }
 
@@ -7347,7 +7349,7 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
                 {
                     HLOGP(tslog.Debug, "receiveMessage: DATA COND: KICKED.");
                 }
-            } while (stillConnected() && !timeout && (!m_pRcvBuffer->isRcvDataReady()));
+            } while (stillConnected() && !timeout && (!m_pRcvBuffer->isRcvDataReady(steady_clock::now())));
             THREAD_RESUMED();
 
             HLOGC(tslog.Debug,
@@ -7362,7 +7364,11 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
                 */
 
         enterCS(m_RcvBufferLock);
-        res = m_pRcvBuffer->readMsg((data), len, (w_mctrl), seqdistance);
+#if ENABLE_NEW_RCVBUFFER
+        res = m_pRcvBuffer->readMessage((data), len, &w_mctrl);
+#else
+        res = m_pRcvBuffer->readMsg((data), len, (w_mctrl));
+#endif
         leaveCS(m_RcvBufferLock);
         HLOGC(arlog.Debug, log << CONID() << "AFTER readMsg: (BLOCKING) result=" << res);
 
@@ -7641,7 +7647,12 @@ int64_t CUDT::recvfile(fstream &ofs, int64_t &offset, int64_t size, int block)
         }
 
         unitsize = int((torecv > block) ? block : torecv);
+        // TODO: readBufferFromFile
+#if ENABLE_NEW_RCVBUFFER
+        recvsize = 0;
+#else
         recvsize = m_pRcvBuffer->readBufferToFile(ofs, unitsize);
+#endif
 
         if (recvsize > 0)
         {
@@ -8039,14 +8050,23 @@ void CUDT::releaseSynch()
 // [[using locked(m_RcvBufferLock)]];
 int32_t CUDT::ackDataUpTo(int32_t ack)
 {
-    int acksize = CSeqNo::seqoff(m_iRcvLastSkipAck, ack);
+    const int acksize = CSeqNo::seqoff(m_iRcvLastSkipAck, ack);
 
-    HLOGC(xtlog.Debug, log << "ackDataUpTo: %" << ack << " vs. current %" << m_iRcvLastSkipAck
-            << " (signing off " << acksize << " packets)");
+    HLOGC(xtlog.Debug, log << "ackDataUpTo: %" << m_iRcvLastSkipAck << " -> %" << ack
+            << " (" << acksize << " packets)");
 
     m_iRcvLastAck = ack;
     m_iRcvLastSkipAck = ack;
 
+#if ENABLE_NEW_RCVBUFFER
+    const std::pair<int, int> range = m_pRcvBuffer->getAvailablePacketsRange();
+    // Some packets acknowledged are not available in the buffer.
+    if (CSeqNo::seqcmp(range.second, ack) < 0)
+    {
+        LOGC(xtlog.Error, log << "IPE: Acknowledged seqno %" << ack << " outruns the RCV buffer state %" << range.first
+            << " - %" << range.second);
+    }
+#else
     // NOTE: This is new towards UDT and prevents spurious
     // wakeup of select/epoll functions when no new packets
     // were signed off for extraction.
@@ -8061,6 +8081,7 @@ int32_t CUDT::ackDataUpTo(int32_t ack)
     if (distance > 0)
         return CSeqNo::decseq(ack, distance);
     return ack;
+#endif
 }
 
 #if ENABLE_HEAVY_LOGGING
@@ -9121,7 +9142,11 @@ void CUDT::processCtrl(const CPacket &ctrlpkt)
     case UMSG_DROPREQ: // 111 - Msg drop request
         {
             UniqueLock rlock(m_RecvLock);
+            // TODO: dropMsg
+#if ENABLE_NEW_RCVBUFFER
+#else
             m_pRcvBuffer->dropMsg(ctrlpkt.getMsgSeq(using_rexmit_flag), using_rexmit_flag);
+#endif
             // When the drop request was received, it means that there are
             // packets for which there will never be ACK sent; if the TSBPD thread
             // is currently in the ACK-waiting state, it may never exit.
@@ -9219,7 +9244,11 @@ void CUDT::updateSrtRcvSettings()
     {
         /* We are TsbPd receiver */
         enterCS(m_RecvLock);
+#if ENABLE_NEW_RCVBUFFER
+        m_pRcvBuffer->setTsbPdMode(m_tsRcvPeerStartTime, false, milliseconds_from(m_iTsbPdDelay_ms), srt::sync::steady_clock::duration(0));
+#else
         m_pRcvBuffer->setRcvTsbPdMode(m_tsRcvPeerStartTime, milliseconds_from(m_iTsbPdDelay_ms));
+#endif
         leaveCS(m_RecvLock);
 
         HLOGF(cnlog.Debug,
@@ -10133,7 +10162,11 @@ int CUDT::processData(CUnit* in_unit)
             }
 
             bool adding_successful = true;
+#if ENABLE_NEW_RCVBUFFER
+            if (m_pRcvBuffer->insert(*i) < 0)
+#else
             if (m_pRcvBuffer->addData(*i, offset) < 0)
+#endif
             {
                 // addData returns -1 if at the m_iLastAckPos+offset position there already is a packet.
                 // So this packet is "redundant".

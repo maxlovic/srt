@@ -24,7 +24,7 @@ namespace srt
 /*
  *   Receiver buffer (circular buffer):
  *
- *   |<------------------- m_iSize ----------------------------->|
+ *   |<------------------- m_szSize ---------------------------->|
  *   |       |<------------ m_iMaxPosInc ----------->|           |
  *   |       |                                       |           |
  *   +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
@@ -50,7 +50,7 @@ class CRcvBufferNew
     typedef srt::sync::steady_clock::duration   duration;
 
 public:
-    CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue);
+    CRcvBufferNew(int initSeqNo, size_t size, CUnitQueue* unitqueue, bool peerRexmit);
 
     ~CRcvBufferNew();
 
@@ -71,13 +71,13 @@ public:
 
     /// Read the whole message from one or several packets.
     ///
-    /// @param [out] data buffer to write the message into.
+    /// @param [in,out] data buffer to write the message into.
     /// @param [in] len size of the buffer.
-    /// @param [out] tsbpdtime localtime-based (uSec) packet time stamp including buffering delay
+    /// @param [in,out] message control data
     ///
     /// @return actual number of bytes extracted from the buffer.
     ///         -1 on failure.
-    int readMessage(char* data, size_t len);
+    int readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl = NULL);
 
 public:
     /// Query how many buffer space is left for data receiving.
@@ -93,6 +93,13 @@ public:
     /// TODO: To miplement
     int getRcvDataSize(int& bytes, int& timespan);
 
+    struct PacketInfo
+    {
+        int        seqno;
+        bool       seq_gap; ///< true if there are missnig packets in the buffer, preceding current packet
+        time_point tsbpd_time;
+    };
+
     /// Get information on the 1st message in queue.
     /// Similar to CRcvBuffer::getRcvFirstMsg
     /// Parameters (of the 1st packet queue, ready to play or not):
@@ -104,21 +111,31 @@ public:
     /// @retval false IF tsbpdtime = 0: rcv buffer empty; ELSE:
     ///                   IF skipseqno != -1, packet ready to play preceeded by missing packets.;
     ///                   IF skipseqno == -1, no missing packet but 1st not ready to play.
-
-    struct PacketInfo
-    {
-        int        seqno;
-        bool       seq_gap; ///< true if there are missnig packets in the buffer, preceding current packet
-        time_point tsbpd_time;
-    };
-
     PacketInfo getFirstValidPacketInfo() const;
 
-    /// Get latest packet that can be read.
-    /// Used to determine how many packets can be acknowledged.
-    // int getLatestReadReadyPacket() const;
+    /// Get information on the packets available to be read
+    /// @returns a pair of sequence numbers
+    std::pair<int, int> getAvailablePacketsRange() const;
 
     size_t countReadable() const;
+
+    bool empty() const
+    {
+        return (m_iMaxPosInc == 0);
+    }
+
+    size_t capacity() const
+    {
+        return m_szSize;
+    }
+
+    int64_t getDrift() const { return m_DriftTracer.drift(); }
+
+    // TODO: make thread safe?
+    int debugGetSize() const
+    {
+        return getRcvDataSize();
+    }
 
     /// Zero time to include all available packets.
     /// TODO: Rename to 'canRead`.
@@ -127,10 +144,7 @@ public:
     int  getRcvAvgDataSize(int& bytes, int& timespan);
     void updRcvAvgDataSize(const time_point& now);
 
-    unsigned getRcvAvgPayloadSize() const
-    {
-        return m_uAvgPayloadSz;
-    }
+    unsigned getRcvAvgPayloadSize() const { return m_uAvgPayloadSz; }
 
 public: // Used for testing
     /// Peek unit in position of seqno
@@ -173,6 +187,7 @@ private:
     size_t m_numOutOfOrderPackets;  // The number of stored packets with "inorder" flag set to false
     int m_iFirstReadableOutOfOrder; // In case of out ouf order packet, points to a position of the first such packet to
                                     // read
+    const bool m_bPeerRexmitFlag;   // Needed to read message number correctly
 
 public: // TSBPD public functions
     /// Set TimeStamp-Based Packet Delivery Rx Mode
@@ -182,11 +197,16 @@ public: // TSBPD public functions
     /// @param [in] drift Initial drift value
     ///
     /// @return 0
-    void setTsbPdMode(const time_point& timebase, bool wrap, uint32_t delay, const duration& drift);
+    void setTsbPdMode(const time_point& timebase, bool wrap, duration delay, const duration& drift);
 
     void applyGroupTime(const time_point& timebase, bool wrp, uint32_t delay, const duration& udrift);
 
     void applyGroupDrift(const time_point& timebase, bool wrp, const duration& udrift);
+
+    bool addRcvTsbPdDriftSample(uint32_t          timestamp_us,
+                                srt::sync::Mutex& mutex_to_lock,
+                                duration&         w_udrift,
+                                time_point&       w_newtimebase);
 
     time_point getPktTsbPdTime(uint32_t timestamp) const;
 

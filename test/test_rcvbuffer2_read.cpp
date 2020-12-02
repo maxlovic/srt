@@ -8,6 +8,7 @@
 #include "sync.h"
 
 using namespace std;
+using namespace srt;
 using namespace srt::sync;
 
 /*!
@@ -37,7 +38,7 @@ protected:
         // make_unique is unfortunatelly C++14
         m_unit_queue = unique_ptr<CUnitQueue>(new CUnitQueue);
         m_unit_queue->init(m_buff_size_pkts, 1500, AF_INET);
-        m_rcv_buffer = unique_ptr<CRcvBufferNew>(new CRcvBufferNew(m_init_seqno, m_buff_size_pkts, m_unit_queue.get()));
+        m_rcv_buffer = unique_ptr<CRcvBufferNew>(new CRcvBufferNew(m_init_seqno, m_buff_size_pkts, m_unit_queue.get(), true));
     }
 
     // Destructs CRcvBufferNew and CUnitQueue
@@ -176,8 +177,7 @@ TEST_F(TestRcvBuffer2Read, OnePacketTSBPD)
 {
     const size_t msg_pkts = 1;
     
-    const unsigned delay_us = count_microseconds(m_delay);
-    m_rcv_buffer->setTsbPdMode(m_tsbpd_base, false, delay_us, steady_clock::duration(0));
+    m_rcv_buffer->setTsbPdMode(m_tsbpd_base, false, m_delay, steady_clock::duration(0));
 
     const int packet_ts = 0;
     // Adding one message. Note that all packets are out of order in TSBPD mode.
