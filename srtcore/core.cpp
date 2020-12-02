@@ -7237,7 +7237,9 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
         HLOGC(arlog.Debug, log << CONID() << "receiveMessage: BEGIN ASYNC MODE. Going to extract payload size=" << len);
         enterCS(m_RcvBufferLock);
 #if ENABLE_NEW_RCVBUFFER
-        const int res = m_pRcvBuffer->readMessage(data, len);
+        const int res = (m_pRcvBuffer->isRcvDataReady(steady_clock::now()))
+            ? m_pRcvBuffer->readMessage(data, len, &w_mctrl)
+            : 0;
 #else
         const int res = m_pRcvBuffer->readMsg(data, len, (w_mctrl));
 #endif
@@ -7266,7 +7268,7 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
             throw CUDTException(MJ_AGAIN, MN_RDAVAIL, 0);
         }
 
-        if (!m_pRcvBuffer->isRcvDataReady())
+        if (!m_pRcvBuffer->isRcvDataReady(steady_clock::now()))
         {
             // Kick TsbPd thread to schedule next wakeup (if running)
             if (m_bTsbPd)

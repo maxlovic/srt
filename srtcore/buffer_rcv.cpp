@@ -1,4 +1,4 @@
-#if 1 || ENABLE_NEW_RCVBUFFER
+#if ENABLE_NEW_RCVBUFFER
 
 #include "buffer_rcv.h"
 #include "logging.h"
@@ -272,7 +272,8 @@ CRcvBufferNew::PacketInfo CRcvBufferNew::getFirstValidPacketInfo() const
 
 std::pair<int, int> CRcvBufferNew::getAvailablePacketsRange() const
 {
-    return std::pair<int, int>(m_iStartPos, m_iFirstNonreadPos);
+    const int seqno_last = CSeqNo::incseq(m_iStartSeqNo, countReadable());
+    return std::pair<int, int>(m_iStartSeqNo, seqno_last);
 }
 
 size_t CRcvBufferNew::countReadable() const
