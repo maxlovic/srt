@@ -7195,7 +7195,9 @@ int CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_excep
         HLOGC(arlog.Debug, log << CONID() << "receiveMessage: CONNECTION BROKEN - reading from recv buffer just for formality");
         enterCS(m_RcvBufferLock);
 #if ENABLE_NEW_RCVBUFFER
-        const int res = m_pRcvBuffer->readMessage(data, len);
+        const int res = (m_pRcvBuffer->isRcvDataReady(steady_clock::now()))
+            ? m_pRcvBuffer->readMessage(data, len, &w_mctrl)
+            : 0;
 #else
         int res       = m_pRcvBuffer->readMsg(data, len);
 #endif
@@ -8068,6 +8070,7 @@ int32_t CUDT::ackDataUpTo(int32_t ack)
         LOGC(xtlog.Error, log << "IPE: Acknowledged seqno %" << ack << " outruns the RCV buffer state %" << range.first
             << " - %" << range.second);
     }
+    return acksize;
 #else
     // NOTE: This is new towards UDT and prevents spurious
     // wakeup of select/epoll functions when no new packets

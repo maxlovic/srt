@@ -203,6 +203,8 @@ int CRcvBufferNew::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
         {
             CUnit* tmp = m_pUnit[i];
             m_iStartPos = incPos(i);
+            --m_iMaxPosInc;
+            SRT_ASSERT(m_iMaxPosInc >= 0);
             m_iStartSeqNo = CSeqNo::incseq(tmp->m_Packet.getSeqNo());
 
             m_pUnit[i] = NULL;
@@ -356,6 +358,9 @@ void CRcvBufferNew::releasePassackUnits()
 
 void CRcvBufferNew::updateNonreadPos()
 {
+    if (m_iMaxPosInc == 0)
+        return;
+
     // const PacketBoundary boundary = packet.getMsgBoundary();
 
     //// The simplest case is when inserting a sequential PB_SOLO packet.

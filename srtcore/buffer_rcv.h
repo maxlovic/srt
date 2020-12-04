@@ -146,6 +146,13 @@ public:
 
     unsigned getRcvAvgPayloadSize() const { return m_uAvgPayloadSz; }
 
+    bool getInternalTimeBase(time_point& w_timebase, duration& w_udrift)
+    {
+        w_timebase = m_tsTsbPdTimeBase;
+        w_udrift = srt::sync::microseconds_from(m_DriftTracer.drift());
+        return m_bTsbPdWrapCheck;
+    }
+
 public: // Used for testing
     /// Peek unit in position of seqno
     const CUnit* peek(int32_t seqno);
