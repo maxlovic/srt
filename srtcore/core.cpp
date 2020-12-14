@@ -6165,6 +6165,8 @@ SRT_REJECT_REASON CUDT::setupCC()
     m_tsLastRspAckTime       = currtime;
     m_tsLastSndTime          = currtime;
 
+    LOGC(rslog.Note, log << "setupCC: next NAK in " << count_milliseconds(m_tdNAKInterval) << "ms.");
+
     HLOGC(rslog.Debug,
           log << "setupCC: setting parameters: mss=" << m_iMSS << " maxCWNDSize/FlowWindowSize=" << m_iFlowWindowSize
               << " rcvrate=" << m_iDeliveryRate << "p/s (" << m_iByteDeliveryRate << "B/S)"
@@ -8009,6 +8011,8 @@ void CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rparam,
         // its own minimum interval, in which case the default one is used.
         if (m_tdNAKInterval < m_tdMinNakInterval)
             m_tdNAKInterval = m_tdMinNakInterval;
+
+        LOGC(xtlog.Note, log << "sendNAK: NAK interval updated to " << count_milliseconds(m_tdNAKInterval) << "ms.");
 
         break;
     }
@@ -11061,6 +11065,7 @@ int CUDT::checkNAKTimer(const steady_clock::time_point& currtime)
     }
 
     m_tsNextNAKTime = currtime + m_tdNAKInterval;
+    LOGC(xtlog.Note, log << "checkNAKTimer: next NAK in " << count_milliseconds(m_tdNAKInterval) << "ms.");
     return debug_decision;
 }
 
