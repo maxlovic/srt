@@ -7998,8 +7998,12 @@ void CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rparam,
             delete[] data;
         }
 
-        // update next NAK time, which should wait enough time for the retansmission, but not too long
-        m_tdNAKInterval = microseconds_from(m_iRTT + 4 * m_iRTTVar);
+
+        if (m_iRTT != 10 * COMM_SYN_INTERVAL_US) // Initial value
+        {
+            // update next NAK time, which should wait enough time for the retansmission, but not too long
+            m_tdNAKInterval = microseconds_from(m_iRTT + 4 * m_iRTTVar);
+        }
 
         // Fix the NAKreport period according to the congctl
         m_tdNAKInterval =
