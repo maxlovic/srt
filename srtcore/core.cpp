@@ -8011,6 +8011,9 @@ void CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rparam,
                                                                       m_RcvTimeWindow.getPktRcvSpeed(),
                                                                       m_pRcvLossList->getLossLength()));
 
+        const steady_clock::duration interval = milliseconds_from(m_iTsbPdDelay_ms / 4);
+        m_tdNAKInterval = max(m_tdMinNakInterval, min(interval, m_tdNAKInterval));
+
         // This is necessary because a congctl need not wish to define
         // its own minimum interval, in which case the default one is used.
         if (m_tdNAKInterval < m_tdMinNakInterval)
