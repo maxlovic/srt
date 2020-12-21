@@ -2998,7 +2998,11 @@ class StabilityTracer
 public:
     StabilityTracer()
     {
-        const std::string str_tnow = srt::sync::FormatTimeSys(srt::sync::steady_clock::now());
+        std::string str_tnow = srt::sync::FormatTimeSys(srt::sync::steady_clock::now());
+        str_tnow.resize(str_tnow.size() - 6); // remove trailing ' [SYS]' part
+        while (str_tnow.find(':') != std::string::npos) {
+            str_tnow.replace(str_tnow.find(':'), 1, 1, '_');
+        }
         const std::string fname = "stability_trace_" + str_tnow + ".csv";
         m_fout.open(fname, std::ofstream::out);
         if (!m_fout)
@@ -3023,7 +3027,7 @@ public:
         m_fout << stability_tmo_us << ",";
         m_fout << count_microseconds(currtime - u.LastRspTime()) << ",";
         m_fout << state << ",";
-        m_fout << (srt::sync::is_zero(u.ActivatedSince()) ? -1 : (count_microseconds(currtime - u.LastRspTime()))) << "\n";
+        m_fout << (srt::sync::is_zero(u.ActivatedSince()) ? -1 : (count_microseconds(currtime - u.ActivatedSince()))) << "\n";
         m_fout.flush();
     }
 
