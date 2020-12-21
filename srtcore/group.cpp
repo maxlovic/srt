@@ -3073,6 +3073,8 @@ static int CheckBackupLinkStable(const CUDT& u, const srt::sync::steady_clock::t
         ? min<int64_t>(max<int64_t>(min_stability_us, latency_us), peer_idle_tout_us) // activation phase
         : min<int64_t>(max<int64_t>(min_stability_us, 2 * u.RTT() + 4 * u.RTTVar()), latency_us);
     
+    // TODO: td_response = currtime - max(u.LastRspTime(), u.ActivatedSince());
+    // TODO: remove m_iOptGroupStabTimeout
     const steady_clock::duration td_response = currtime - u.LastRspTime();
     if (count_microseconds(td_response) > stability_tout_us)
     {
