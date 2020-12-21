@@ -2998,9 +2998,11 @@ class StabilityTracer
 public:
     StabilityTracer()
     {
-        m_fout.open("statility_trace.csv", std::ofstream::out);
+        const std::string str_tnow = srt::sync::FormatTimeSys(srt::sync::steady_clock::now());
+        const std::string fname = "stability_trace_" + str_tnow + ".csv";
+        m_fout.open(fname, std::ofstream::out);
         if (!m_fout)
-            std::cerr << "IPE: Failed to open stability_trace.csv!!!\n";
+            std::cerr << "IPE: Failed to open " << fname << "!!!\n";
 
         print_header();
     }
@@ -3011,16 +3013,17 @@ public:
         m_fout.close();
     }
 
-    void trace(const CUDT& u, const time_point& currtime, int64_t stability_tmo_us, const std::string& state)
+    void trace(const CUDT& u, const srt::sync::steady_clock::time_point& currtime, int64_t stability_tmo_us, const std::string& state)
     {
         srt::sync::ScopedLock lck(m_mtx);
-        m_fout << FormatTimeSys(currtime) << ",";
+        m_fout << srt::sync::FormatTimeSys(currtime) << ",";
         m_fout << u.id() << ",";
         m_fout << u.RTT() << ",";
         m_fout << u.RTTVar() << ",";
         m_fout << stability_tmo_us << ",";
-        m_fout << count_microseconds(currtime - u.m_tsLastRspTime) << ",";
-        m_fout << state << "\n";
+        m_fout << count_microseconds(currtime - u.LastRspTime()) << ",";
+        m_fout << state << ",";
+        m_fout << (srt::sync::is_zero(u.ActivatedSince()) ? -1 : (count_microseconds(currtime - u.LastRspTime()))) << "\n";
         m_fout.flush();
     }
 
@@ -3028,7 +3031,7 @@ private:
     void print_header()
     {
         srt::sync::ScopedLock lck(m_mtx);
-        m_fout << "Timepoint,SocketID,usRTT,usRTTVar,usStabilityTimeout,usSinceLastResp,State\n";
+        m_fout << "Timepoint,SocketID,usRTT,usRTTVar,usStabilityTimeout,usSinceLastResp,State,usSinceActivation\n";
     }
 
 private:
@@ -3041,12 +3044,12 @@ static StabilityTracer s_stab_trace;
 /// @retval  1 - link is identified as stable
 /// @retval  0 - link state remains unchanged (too early to identify, still in activation phase)
 /// @retval -1 - link is identified as unstable
-static bool CheckBackupLinkStable(const CUDT& u, const time_point& currtime)
+static bool CheckBackupLinkStable(const CUDT& u, const srt::sync::steady_clock::time_point& currtime)
 {
     // There was already a response from peer while we are here.
     // m_tsUnstableSince = 0;
     // Do we need to keep the activation phase?
-    if (currtime <= u.m_tsLastRspTime) {
+    if (currtime <= u.LastRspTime()) {
         s_stab_trace.trace(u, currtime, -1, "STABLE");
         return true;
     }
@@ -3055,26 +3058,27 @@ static bool CheckBackupLinkStable(const CUDT& u, const time_point& currtime)
     // therefore it is incorrect to use the dymanic timeout.
     const uint32_t latency_us = u.latency_us();
     const uint32_t activation_period_us = latency_us + 50000;
-    const bool is_activation_phase = !is_zero(u.m_tsActivationSince) && (currtime - u.m_tsActivationSince) < activation_period_us;
+    const bool is_activation_phase = !is_zero(u.ActivatedSince())
+        && (count_microseconds(currtime - u.ActivatedSince()) < activation_period_us);
 
     const int32_t min_stability_us = 60000; // Minimum Link Stability Timeout: 60ms.
     const int peer_idle_tout_us = u.peer_idle_tout_ms() * 1000;
 
     SRT_ASSERT(latency_us < peer_idle_tout_us);
     const int64_t stability_tout_us = is_activation_phase
-        ? min(max(min_stability_us, latency_us), peer_idle_tout_us) // activation phase
-        : min(max(min_stability_us, 2 * u.RTT() + 4 * u.RTTVar()), latency_us);
+        ? min<int64_t>(max<int64_t>(min_stability_us, latency_us), peer_idle_tout_us) // activation phase
+        : min<int64_t>(max<int64_t>(min_stability_us, 2 * u.RTT() + 4 * u.RTTVar()), latency_us);
     
-    const steady_clock::duration td_response = currtime - u.m_tsLastRspTime;
+    const steady_clock::duration td_response = currtime - u.LastRspTime();
     if (count_microseconds(td_response) > stability_tout_us)
     {
         s_stab_trace.trace(u, currtime, stability_tout_us, "UNSTABLE");
         return false;
     }
 
-    // u.m_tsLastRspTime > currtime is alwats true due to the very first check above in this function
+    // u.LastRspTime() > currtime is alwats true due to the very first check above in this function
     s_stab_trace.trace(u, currtime, stability_tout_us, "STABLE");
-    return (u.m_tsLastRspTime > currtime) ? true : false;
+    return (u.LastRspTime() > currtime) ? true : false;
 }
 
 
@@ -3093,8 +3097,6 @@ bool CUDTGroup::sendBackup_CheckRunningStability(const gli_t d, const time_point
     // updating the m_tsLastRspTime field. This is useless because avoiding the
     // negative value is relatively easy, while introducing a mutex would only add a
     // deadlock risk and performance degradation.
-
-    bool is_stable = true;
 
     HLOGC(gslog.Debug,
           log << "grp/sendBackup: CHECK STABLE: @" << d->id
