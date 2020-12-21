@@ -3016,7 +3016,7 @@ public:
     void trace(const CUDT& u, const srt::sync::steady_clock::time_point& currtime, int64_t stability_tmo_us, const std::string& state)
     {
         srt::sync::ScopedLock lck(m_mtx);
-        m_fout << srt::sync::FormatTimeSys(currtime) << ",";
+        m_fout << srt::sync::FormatTime(currtime) << ",";
         m_fout << u.id() << ",";
         m_fout << u.RTT() << ",";
         m_fout << u.RTTVar() << ",";
@@ -3044,14 +3044,14 @@ static StabilityTracer s_stab_trace;
 /// @retval  1 - link is identified as stable
 /// @retval  0 - link state remains unchanged (too early to identify, still in activation phase)
 /// @retval -1 - link is identified as unstable
-static bool CheckBackupLinkStable(const CUDT& u, const srt::sync::steady_clock::time_point& currtime)
+static int CheckBackupLinkStable(const CUDT& u, const srt::sync::steady_clock::time_point& currtime)
 {
     // There was already a response from peer while we are here.
     // m_tsUnstableSince = 0;
     // Do we need to keep the activation phase?
     if (currtime <= u.LastRspTime()) {
         s_stab_trace.trace(u, currtime, -1, "STABLE");
-        return true;
+        return 1;
     }
 
     // RTT and RTTVar values during activation period are still being refined,
@@ -3073,12 +3073,12 @@ static bool CheckBackupLinkStable(const CUDT& u, const srt::sync::steady_clock::
     if (count_microseconds(td_response) > stability_tout_us)
     {
         s_stab_trace.trace(u, currtime, stability_tout_us, "UNSTABLE");
-        return false;
+        return -1;
     }
 
     // u.LastRspTime() > currtime is alwats true due to the very first check above in this function
     s_stab_trace.trace(u, currtime, stability_tout_us, "STABLE");
-    return (u.LastRspTime() > currtime) ? true : false;
+    return is_activation_phase ? 0 : 1;
 }
 
 
@@ -3108,9 +3108,9 @@ bool CUDTGroup::sendBackup_CheckRunningStability(const gli_t d, const time_point
               << "}");
 
 
-    const bool is_stable = CheckBackupLinkStable(u, currtime);
+    const int is_stable = CheckBackupLinkStable(u, currtime);
 
-    if (is_stable)
+    if (is_stable >= 0)
     {
         HLOGC(gslog.Debug,
               log << "grp/sendBackup: link STABLE: @" << d->id
@@ -3120,7 +3120,8 @@ bool CUDTGroup::sendBackup_CheckRunningStability(const gli_t d, const time_point
         u.m_tsUnstableSince = steady_clock::time_point();
 
         // For some cases
-        //u.m_tsActivationSince = steady_clock::time_point();
+        if (is_stable > 0)
+            u.m_tsActivationSince = steady_clock::time_point();
     }
     else
     {
@@ -3133,7 +3134,7 @@ bool CUDTGroup::sendBackup_CheckRunningStability(const gli_t d, const time_point
         }
     }
 
-    return is_stable;
+    return is_stable >= 0;
 }
 
 // [[using locked(this->m_GroupLock)]]
