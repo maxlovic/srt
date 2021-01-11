@@ -26,7 +26,7 @@ param (
 $cmakeVersion = "3.17.3"
 
 # make all errors trigger a script stop, rather than just carry on
-$ErrorActionPreference = "Stop"
+#$ErrorActionPreference = "Stop"
 
 $projectRoot = Join-Path $PSScriptRoot "/.." -Resolve
 
