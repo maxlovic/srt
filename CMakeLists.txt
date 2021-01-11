@@ -1182,7 +1182,7 @@ endif()
 if (ENABLE_UNITTESTS AND ENABLE_CXX11)
 	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-	find_package(GTest 1.8)
+	find_package(GTest 1.10)
 	if (NOT GTEST_FOUND)
 		message(STATUS "GTEST not found! Fetching from git.")
 		include(googletest)
