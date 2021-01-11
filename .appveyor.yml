@@ -12,6 +12,7 @@ platform:
   - x86
 
 build_script:
+  - ps: cmake --version
   - ps: $VSIMG = $Env:APPVEYOR_BUILD_WORKER_IMAGE; $CNFG = $Env:CONFIGURATION
   # use a few differing arguments depending on VS version to exercise different options during builds
   - ps: if ($VSIMG -match '2019' -and $CNFG -eq "Release") { .\scripts\build-windows.ps1 -STATIC_LINK_SSL ON -BUILD_APPS ON -UNIT_TESTS ON }
