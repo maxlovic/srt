@@ -3048,7 +3048,7 @@ static StabilityTracer s_stab_trace;
 /// @retval  1 - link is identified as stable
 /// @retval  0 - link state remains unchanged (too early to identify, still in activation phase)
 /// @retval -1 - link is identified as unstable
-static int CheckBackupLinkStable(const CUDT& u, const srt::sync::steady_clock::time_point& currtime)
+static int sendBackup_CheckRunningLinkStable(const CUDT& u, const srt::sync::steady_clock::time_point& currtime)
 {
     // There was already a response from peer while we are here.
     // m_tsUnstableSince = 0;
@@ -3114,7 +3114,7 @@ bool CUDTGroup::sendBackup_CheckRunningStability(const gli_t d, const time_point
               << "}");
 
 
-    const int is_stable = CheckBackupLinkStable(u, currtime);
+    const int is_stable = sendBackup_CheckRunningLinkStable(u, currtime);
 
     if (is_stable >= 0)
     {
@@ -3160,6 +3160,7 @@ bool CUDTGroup::sendBackup_CheckSendStatus(gli_t                                
 {
     bool none_succeeded = true;
 
+    // sending over this socket has succeeded
     if (stat != -1)
     {
         if (w_curseq == SRT_SEQNO_NONE)
@@ -3738,8 +3739,6 @@ RetryWaitBlocked:
         int stat     = -1;
         for (gli_t d = m_Group.begin(); d != m_Group.end(); ++d)
         {
-            // int erc = 0;
-
             // Skip if not writable in this run
             if (!CEPoll::isready(sready, d->id, SRT_EPOLL_OUT))
             {
@@ -3810,7 +3809,7 @@ RetryWaitBlocked:
     if (w_parallel.size() > 1)
     {
         sort(w_parallel.begin(), w_parallel.end(), FPriorityOrder());
-        steady_clock::time_point currtime = steady_clock::now();
+        const steady_clock::time_point currtime = steady_clock::now();
 
         vector<gli_t>::iterator b = w_parallel.begin();
 
@@ -3854,12 +3853,10 @@ RetryWaitBlocked:
             }
             CUDT&                  ce = d->ps->core();
             steady_clock::duration td(0);
-            if (!is_zero(ce.m_tsActivationSince) &&
-                    count_microseconds(td = currtime - ce.m_tsActivationSince) < ce.m_uOPT_StabilityTimeout)
+            if (!is_zero(ce.m_tsActivationSince) && sendBackup_CheckRunningLinkStable(ce, currtime) != 1)
             {
                 HLOGC(gslog.Debug,
-                        log << "... not silencing @" << d->id << ": too early: " << FormatDuration(td) << " < "
-                        << ce.m_uOPT_StabilityTimeout << "(stability timeout)");
+                        log << "... not silencing @" << d->id << ": too early: " << FormatDuration(td));
                 continue;
             }
 
@@ -3950,8 +3947,8 @@ int CUDTGroup::sendBackup(const char* buf, int len, SRT_MSGCTRL& w_mc)
 
     bool none_succeeded = true; // be pessimistic
 
-    // This should be added all sockets that are currently stable
-    // and sending was successful. Later, all but the one with highest
+    // All sockets that are currently stable and sending was successful
+    // should be added to the vector. Later, all but the one with highest
     // priority should remain active.
     vector<gli_t> parallel;
 
