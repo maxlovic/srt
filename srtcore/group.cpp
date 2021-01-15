@@ -2998,17 +2998,6 @@ class StabilityTracer
 public:
     StabilityTracer()
     {
-        std::string str_tnow = srt::sync::FormatTimeSys(srt::sync::steady_clock::now());
-        str_tnow.resize(str_tnow.size() - 6); // remove trailing ' [SYS]' part
-        while (str_tnow.find(':') != std::string::npos) {
-            str_tnow.replace(str_tnow.find(':'), 1, 1, '_');
-        }
-        const std::string fname = "stability_trace_" + str_tnow + ".csv";
-        m_fout.open(fname, std::ofstream::out);
-        if (!m_fout)
-            std::cerr << "IPE: Failed to open " << fname << "!!!\n";
-
-        print_header();
     }
 
     ~StabilityTracer()
@@ -3020,6 +3009,8 @@ public:
     void trace(const CUDT& u, const srt::sync::steady_clock::time_point& currtime, int64_t stability_tmo_us, const std::string& state)
     {
         srt::sync::ScopedLock lck(m_mtx);
+        create_file();
+        
         m_fout << srt::sync::FormatTime(currtime) << ",";
         m_fout << u.id() << ",";
         m_fout << u.RTT() << ",";
@@ -3038,12 +3029,30 @@ private:
         m_fout << "Timepoint,SocketID,usRTT,usRTTVar,usStabilityTimeout,usSinceLastResp,State,usSinceActivation\n";
     }
 
+    void create_file()
+    {
+        if (m_fout)
+            return;
+
+        std::string str_tnow = srt::sync::FormatTimeSys(srt::sync::steady_clock::now());
+        str_tnow.resize(str_tnow.size() - 6); // remove trailing ' [SYS]' part
+        while (str_tnow.find(':') != std::string::npos) {
+            str_tnow.replace(str_tnow.find(':'), 1, 1, '_');
+        }
+        const std::string fname = "stability_trace_" + str_tnow + ".csv";
+        m_fout.open(fname, std::ofstream::out);
+        if (!m_fout)
+            std::cerr << "IPE: Failed to open " << fname << "!!!\n";
+
+        print_header();
+    }
+
 private:
     srt::sync::Mutex m_mtx;
     std::ofstream m_fout;
 };
 
-static StabilityTracer s_stab_trace;
+StabilityTracer s_stab_trace;
 
 /// @retval  1 - link is identified as stable
 /// @retval  0 - link state remains unchanged (too early to identify, still in activation phase)
