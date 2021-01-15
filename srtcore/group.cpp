@@ -3025,7 +3025,7 @@ public:
 private:
     void print_header()
     {
-        srt::sync::ScopedLock lck(m_mtx);
+        //srt::sync::ScopedLock lck(m_mtx);
         m_fout << "Timepoint,SocketID,usRTT,usRTTVar,usStabilityTimeout,usSinceLastResp,State,usSinceActivation\n";
     }
 
