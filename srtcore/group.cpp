@@ -2993,6 +2993,7 @@ void CUDTGroup::sendBackup_CheckIdleTime(gli_t w_d)
     }
 }
 
+#if SRT_DEBUG_BONDING_STATES
 class StabilityTracer
 {
 public:
@@ -3053,6 +3054,7 @@ private:
 };
 
 StabilityTracer s_stab_trace;
+#endif
 
 /// @retval  1 - link is identified as stable
 /// @retval  0 - link state remains unchanged (too early to identify, still in activation phase)
@@ -3063,7 +3065,9 @@ static int sendBackup_CheckRunningLinkStable(const CUDT& u, const srt::sync::ste
     // m_tsUnstableSince = 0;
     // Do we need to keep the activation phase?
     if (currtime <= u.LastRspTime()) {
+#if SRT_DEBUG_BONDING_STATES
         s_stab_trace.trace(u, currtime, -1, "STABLE");
+#endif
         return 1;
     }
 
@@ -3087,12 +3091,16 @@ static int sendBackup_CheckRunningLinkStable(const CUDT& u, const srt::sync::ste
     const steady_clock::duration td_response = currtime - u.LastRspTime();
     if (count_microseconds(td_response) > stability_tout_us)
     {
+#if SRT_DEBUG_BONDING_STATES
         s_stab_trace.trace(u, currtime, stability_tout_us, "UNSTABLE");
+#endif
         return -1;
     }
 
     // u.LastRspTime() > currtime is alwats true due to the very first check above in this function
+#if SRT_DEBUG_BONDING_STATES
     s_stab_trace.trace(u, currtime, stability_tout_us, "STABLE");
+#endif
     return is_activation_phase ? 0 : 1;
 }
 
