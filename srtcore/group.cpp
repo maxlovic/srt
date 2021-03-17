@@ -203,9 +203,8 @@ void CUDTGroup::debugMasterData(SRTSOCKET slave)
     {
         // The returned master_st is the master's start time. Calculate the
         // differene time.
-        steady_clock::duration master_tdiff = m_tsStartTime - start_time;
         LOGC(cnlog.Debug, log << CONID() << "FOUND GROUP MASTER LINK: peer=$" << mpeer
-                << " - start time diff: " << FormatDuration<DUNIT_S>(master_tdiff));
+                << " - start time diff: " << FormatDuration<DUNIT_S>(m_tsStartTime - start_time));
     }
 }
 

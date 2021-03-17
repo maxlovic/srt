@@ -187,10 +187,12 @@ void CChannel::createSocket(int family)
                 (const char*) &m_mcfg.iIpV6Only, sizeof m_mcfg.iIpV6Only);
         if (res == -1)
         {
-            int err = errno;
+#if ENABLE_LOGGING
+            const int err = errno;
             char msg[160];
             LOGC(kmlog.Error, log << "::setsockopt: failed to set IPPROTO_IPV6/IPV6_V6ONLY = "
                     << m_mcfg.iIpV6Only << ": " << SysStrError(err, msg, 159));
+#endif
         }
     }
 
@@ -352,9 +354,11 @@ void CChannel::setUDPSockOpt()
           if (0 != ::setsockopt(m_iSocket, SOL_SOCKET, SO_BINDTODEVICE,
                       m_mcfg.sBindToDevice.c_str(), m_mcfg.sBindToDevice.size()))
           {
+#if ENABLE_LOGGING
               char buf[255];
               const char* err = SysStrError(NET_ERROR, buf, 255);
               LOGC(kmlog.Error, log << "setsockopt(SRTO_BINDTODEVICE): " << err);
+#endif
               throw CUDTException(MJ_SETUP, MN_NORES, NET_ERROR);
           }
       }
