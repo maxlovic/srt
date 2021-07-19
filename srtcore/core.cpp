@@ -7272,8 +7272,7 @@ int64_t srt::CUDT::recvfile(fstream &ofs, int64_t &offset, int64_t size, int blo
         enterCS(m_RcvBufferLock);
         // TODO: readBufferFromFile
 #if ENABLE_NEW_RCVBUFFER
-        recvsize = 0;
-        unitsize = 0;
+        recvsize = m_pRcvBuffer->readBufferToFile(ofs, unitsize, m_iRcvLastAck);
 #else
         recvsize = m_pRcvBuffer->readBufferToFile(ofs, unitsize);
 #endif
@@ -7428,6 +7427,7 @@ void srt::CUDT::bstats(CBytePerfMon *perf, bool clear, bool instantaneous)
         if (m_pRcvBuffer)
         {
             perf->byteAvailRcvBuf = getAvailRcvBufferSize() * m_config.iMSS;
+            // TODO: In case of the new receiver buffer counts both acknowledged and unacknowledged packets.
             if (instantaneous) // no need for historical API for Rcv side
             {
                 perf->pktRcvBuf = m_pRcvBuffer->getRcvDataSize(perf->byteRcvBuf, perf->msRcvBuf);
