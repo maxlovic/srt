@@ -5173,9 +5173,10 @@ void * srt::CUDT::tsbpd(void* param)
         else if (is_time_to_deliver)
         {
             rxready = true;
-            const int seq_gap_len = CSeqNo::seqoff(self->m_iRcvLastSkipAck, info.seqno);
-            if (seq_gap_len > 0)
+            if (info.seq_gap)
             {
+                const int seq_gap_len = CSeqNo::seqoff(self->m_iRcvLastSkipAck, info.seqno);
+                SRT_ASSERT(seq_gap_len > 0);
                 /*if (!info.seq_gap)
                 {
                     LOGC(brlog.Warn, log << "TSBPD worker: no gap. pktseqno=" << info.seqno
@@ -5187,10 +5188,10 @@ void * srt::CUDT::tsbpd(void* param)
 
                 // Drop too late packets
                 self->updateForgotten(seq_gap_len, self->m_iRcvLastSkipAck, info.seqno);
-                if (info.seq_gap) // If there is no sequence gap, we are reading ahead of ACK.
-                {
-                    self->m_pRcvBuffer->dropUpTo(info.seqno);
-                }
+                //if (info.seq_gap) // If there is no sequence gap, we are reading ahead of ACK.
+                //{
+                self->m_pRcvBuffer->dropUpTo(info.seqno);
+                //}
 
                 self->m_iRcvLastSkipAck = info.seqno;
 #if ENABLE_EXPERIMENTAL_BONDING
@@ -5200,12 +5201,14 @@ void * srt::CUDT::tsbpd(void* param)
 #if ENABLE_LOGGING
                 const int64_t timediff_us = count_microseconds(tnow - info.tsbpd_time);
 #if ENABLE_HEAVY_LOGGING
-                /*HLOGC(tslog.Debug,
-                    log << self->CONID() << "tsbpd: DROPSEQ: up to seq=" << CSeqNo::decseq(skiptoseqno) << " ("
-                    << seqlen << " packets) playable at " << FormatTime(tsbpdtime) << " delayed "
-                    << (timediff_us / 1000) << "." << (timediff_us % 1000) << " ms");*/
+                HLOGC(tslog.Debug,
+                    log << self->CONID() << "tsbpd: DROPSEQ: up to seqno %" << CSeqNo::decseq(info.seqno) << " ("
+                    << seq_gap_len << " packets) playable at " << FormatTime(info.tsbpd_time) << " delayed "
+                    << (timediff_us / 1000) << "." << std::setw(3) << std::setfill('0') << (timediff_us % 1000) << " ms");
 #endif
-                LOGC(brlog.Warn, log << "RCV-DROPPED packet delay=" << (timediff_us / 1000) << "ms" << " up to seqno " << info.seqno);
+                LOGC(brlog.Warn, log << self->CONID() << "RCV-DROPPED " << seq_gap_len << " packet(s), packet seqno %" << info.seqno
+                    << " delayed for " << (timediff_us / 1000) << "." << std::setw(3) << std::setfill('0')
+                    << (timediff_us % 1000) << " ms");
 #endif
 
                 tsbpd_time = steady_clock::time_point(); // Ready to read, nothing to wait for.
@@ -6777,6 +6780,16 @@ size_t srt::CUDT::getAvailRcvBufferSize() const
 #endif
 }
 
+bool srt::CUDT::isRcvBufferReady() const
+{
+    ScopedLock lck(m_RcvBufferLock);
+#if ENABLE_NEW_RCVBUFFER
+    return m_pRcvBuffer->isRcvDataReady(steady_clock::now());
+#else
+    return m_pRcvBuffer->isRcvDataReady();
+#endif
+}
+
 // int by_exception: accepts values of CUDTUnited::ErrorHandling:
 // - 0 - by return value
 // - 1 - by exception
@@ -6897,7 +6910,7 @@ int srt::CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_
             throw CUDTException(MJ_AGAIN, MN_RDAVAIL, 0);
         }
 
-        if (!m_pRcvBuffer->isRcvDataReady(steady_clock::now()))
+        if (!isRcvBufferReady())
         {
             // Kick TsbPd thread to schedule next wakeup (if running)
             if (m_bTsbPd)
@@ -6980,7 +6993,7 @@ int srt::CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_
                 {
                     HLOGP(tslog.Debug, "receiveMessage: DATA COND: KICKED.");
                 }
-            } while (stillConnected() && !timeout && (!m_pRcvBuffer->isRcvDataReady(steady_clock::now())));
+            } while (stillConnected() && !timeout && (!isRcvBufferReady()));
             THREAD_RESUMED();
 
             HLOGC(tslog.Debug,
@@ -6998,7 +7011,7 @@ int srt::CUDT::receiveMessage(char* data, int len, SRT_MSGCTRL& w_mctrl, int by_
 #if ENABLE_NEW_RCVBUFFER
         res = m_pRcvBuffer->readMessage((data), len, &w_mctrl);
 #else
-        res = m_pRcvBuffer->readMsg((data), len, (w_mctrl));
+        res = m_pRcvBuffer->readMsg((data), len, (w_mctrl), seqdistance);
 #endif
         leaveCS(m_RcvBufferLock);
         HLOGC(arlog.Debug, log << CONID() << "AFTER readMsg: (BLOCKING) result=" << res);
@@ -9918,10 +9931,17 @@ int srt::CUDT::processData(CUnit* in_unit)
                 }
                 else
                 {
+#if ENABLE_NEW_RCVBUFFER
                     LOGC(qrlog.Warn, log << CONID() << "No room to store incoming packet seqno " << rpkt.m_iSeqNo
                         << ", insert offset " << offset << ". "
                         << m_pRcvBuffer->strFullnessState(m_iRcvLastAck, steady_clock::now())
                     );
+#else
+                    LOGC(qrlog.Warn, log << CONID() << "No room to store incoming packet seqno " << rpkt.m_iSeqNo
+                        << ", insert offset " << offset << ". "
+                        << m_pRcvBuffer->strFullnessState(steady_clock::now())
+                    );
+#endif
 
                     return -1;
                 }

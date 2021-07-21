@@ -685,6 +685,8 @@ private:
         return m_stats.tsStartTime;
     }
 
+    bool isRcvBufferReady() const;
+
     // TSBPD thread main function.
     static void* tsbpd(void* param);
 
@@ -913,7 +915,7 @@ private: // synchronization: mutexes and conditions
     srt::sync::Condition m_SendBlockCond;        // used to block "send" call
     srt::sync::Mutex m_SendBlockLock;            // lock associated to m_SendBlockCond
 
-    srt::sync::Mutex m_RcvBufferLock;            // Protects the state of the m_pRcvBuffer
+    mutable srt::sync::Mutex m_RcvBufferLock;    // Protects the state of the m_pRcvBuffer
     // Protects access to m_iSndCurrSeqNo, m_iSndLastAck
     srt::sync::Mutex m_RecvAckLock;              // Protects the state changes while processing incomming ACK (SRT_EPOLL_OUT)
 
