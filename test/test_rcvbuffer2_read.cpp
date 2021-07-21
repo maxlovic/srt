@@ -136,11 +136,11 @@ protected:
 /// Don't allow to add packet with the same sequence number.
 ///
 /// 1. insert
-///   / 
+///   | 
 /// +---+  ---+---+---+---+---+   +---+
 /// | 1 |   0 | 0 | 0 | 0 | 0 |...| 0 | m_pUnit[]
 /// +---+  ---+---+---+---+---+   +---+
-///   \ 
+///   |
 /// 2. read
 ///
 TEST_F(TestRcvBuffer2Read, OnePacket)
