@@ -139,6 +139,12 @@ void CRcvBufferNew::dropUpTo(int32_t seqno)
             releaseUnitInPos(m_iStartPos);
         }
 
+        if (m_entries[m_iStartPos].status != EntryState_Empty)
+        {
+            SRT_ASSERT(m_entries[m_iStartPos].status == EntryState_Drop || m_entries[m_iStartPos].status == EntryState_Read);
+            m_entries[m_iStartPos].status = EntryState_Empty;
+        }
+
         SRT_ASSERT(m_entries[m_iStartPos].pUnit == NULL && m_entries[m_iStartPos].status == EntryState_Empty);
         m_iStartPos = incPos(m_iStartPos);
         --len;

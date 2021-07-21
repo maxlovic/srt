@@ -5200,6 +5200,7 @@ void * srt::CUDT::tsbpd(void* param)
 
 #if ENABLE_LOGGING
                 const int64_t timediff_us = count_microseconds(tnow - info.tsbpd_time);
+				// TODO: seq_gap_len is not the actual number of packets dropped.
 #if ENABLE_HEAVY_LOGGING
                 HLOGC(tslog.Debug,
                     log << self->CONID() << "tsbpd: DROPSEQ: up to seqno %" << CSeqNo::decseq(info.seqno) << " ("
